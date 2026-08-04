@@ -1,0 +1,128 @@
+// Smash Zone Pickleball Tagum — booking system schema.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  customer
+  admin
+}
+
+enum BookingStatus {
+  pending_payment
+  awaiting_confirmation
+  awaiting_call
+  confirmed
+  cancelled
+  expired
+}
+
+enum PayMethod {
+  gcash
+  cash_onsite
+  arranged
+}
+
+enum PaymentStatus {
+  submitted
+  verified
+  rejected
+}
+
+model User {
+  id        String   @id @default(cuid())
+  googleSub String   @unique
+  email     String   @unique
+  name      String   @default("")
+  image     String   @default("")
+  role      Role     @default(customer)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  bookings         Booking[]
+  verifiedPayments Payment[] @relation("VerifiedBy")
+}
+
+model Court {
+  id        Int     @id @default(autoincrement())
+  name      String
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  bookings Booking[]
+}
+
+/// Singleton row (id is always 1) holding every admin-editable business setting.
+model Setting {
+  id                Int    @id @default(1)
+  businessName      String @default("Smash Zone Pickleball Tagum")
+  contactPerson     String @default("")
+  contactPhone      String @default("")
+  address           String @default("")
+  priceCentsPerHour Int    @default(30000)
+  currency          String @default("PHP")
+  timezone          String @default("Asia/Manila")
+  gcashName         String @default("")
+  gcashNumber       String @default("")
+  holdMinutes       Int    @default(30)
+  leadMinutes       Int    @default(60)
+  slotDurationMin   Int    @default(60)
+}
+
+/// One row per weekday (0=Sun..6=Sat). Minutes are from local midnight, 0..1440.
+model BusinessHour {
+  id       Int @id @default(autoincrement())
+  weekday  Int
+  openMin  Int
+  closeMin Int
+
+  @@index([weekday])
+}
+
+model BlackoutDate {
+  date   DateTime @id @db.Date
+  reason String   @default("")
+}
+
+model Booking {
+  id           String        @id @default(cuid())
+  courtId      Int
+  court        Court         @relation(fields: [courtId], references: [id])
+  customerId   String
+  customer     User          @relation(fields: [customerId], references: [id])
+  startUtc     DateTime      @db.Timestamptz(3)
+  endUtc       DateTime      @db.Timestamptz(3)
+  hours        Int
+  status       BookingStatus @default(pending_payment)
+  payMethod    PayMethod?
+  expiresAt    DateTime?     @db.Timestamptz(3)
+  customerNote String        @default("")
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+
+  payment Payment?
+
+  @@index([courtId, startUtc, endUtc])
+  @@index([status])
+  @@index([customerId])
+}
+
+/// At most one payment record per booking (upserted as the customer resubmits).
+model Payment {
+  id              String        @id @default(cuid())
+  bookingId       String        @unique
+  booking         Booking       @relation(fields: [bookingId], references: [id])
+  referenceNumber String        @default("")
+  amountCents     Int           @default(0)
+  status          PaymentStatus @default(submitted)
+  submittedAt     DateTime      @default(now()) @db.Timestamptz(3)
+  verifiedById    String?
+  verifiedBy      User?         @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt      DateTime?     @db.Timestamptz(3)
+  rejectReason    String        @default("")
+}
