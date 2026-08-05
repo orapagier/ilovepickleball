@@ -7,6 +7,7 @@ type Settings = {
   businessName: string;
   contactPerson: string;
   contactPhone: string;
+  contactEmail: string;
   address: string;
   priceCentsPerHour: number;
   currency: string;
@@ -66,12 +67,15 @@ export function SettingsForm({ settings }: { settings: Settings }) {
 
       <section className="surface-card p-6">
         <h2 className="text-lg font-semibold">Contact person</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <Field label="Contact person">
             <input name="contactPerson" defaultValue={settings.contactPerson} className={inputClass} />
           </Field>
           <Field label="Contact phone">
             <input name="contactPhone" defaultValue={settings.contactPhone} className={inputClass} />
+          </Field>
+          <Field label="Contact email">
+            <input name="contactEmail" type="email" defaultValue={settings.contactEmail} className={inputClass} />
           </Field>
         </div>
       </section>

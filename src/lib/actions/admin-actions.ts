@@ -4,12 +4,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, type SessionUser } from "@/lib/auth-helpers";
+import { getSettings, getBusinessHours, getBlackoutDateSet, ACTIVE_STATUSES } from "@/lib/booking-data";
+import { isValidBookingRange } from "@/lib/scheduling";
 
 export type ActionState = { error?: string; ok?: boolean };
 
+const MAX_BOOKING_HOURS = 6;
+const RESCHEDULABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
+
 async function requireAdminOrThrow(): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin");
   if (user.role !== "admin") throw new Error("Forbidden: admin access required.");
   return user;
 }
@@ -73,6 +78,91 @@ export async function adminCancelBooking(bookingId: string): Promise<ActionState
   return { ok: true };
 }
 
+const DELETE_ELIGIBLE_STATUSES = ["cancelled", "expired"];
+const DELETE_AFTER_DAYS = 30;
+
+/** Permanently removes a booking, but only once it's been cancelled/expired
+ *  for DELETE_AFTER_DAYS — keeps recent history around while letting old
+ *  dead records be cleared out instead of accumulating forever. */
+export async function adminDeleteBooking(bookingId: string): Promise<ActionState> {
+  await requireAdminOrThrow();
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) return { error: "Booking not found." };
+  if (!DELETE_ELIGIBLE_STATUSES.includes(booking.status)) {
+    return { error: "Only cancelled or expired bookings can be deleted." };
+  }
+  const eligibleSinceMs = Date.now() - DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  if (booking.updatedAt.getTime() > eligibleSinceMs) {
+    return { error: `This booking must be cancelled or expired for ${DELETE_AFTER_DAYS} days before it can be deleted.` };
+  }
+  await prisma.$transaction([
+    prisma.payment.deleteMany({ where: { bookingId } }),
+    prisma.booking.delete({ where: { id: bookingId } }),
+  ]);
+  revalidateBookingViews(bookingId);
+  return { ok: true };
+}
+
+/** Moves a booking to a different court/time/duration, reusing the same open-hours,
+ *  blackout, lead-time and double-booking checks the customer-facing flow uses. */
+export async function rescheduleBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireAdminOrThrow();
+
+  const bookingId = String(formData.get("bookingId") ?? "");
+  const courtId = Number(formData.get("courtId"));
+  const startMs = Number(formData.get("startMs"));
+  const hours = Number(formData.get("hours"));
+
+  if (!Number.isFinite(courtId) || !Number.isFinite(startMs)) {
+    return { error: "Pick a court and a time slot first." };
+  }
+  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_BOOKING_HOURS) {
+    return { error: "Choose a valid number of hours." };
+  }
+
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) return { error: "Booking not found." };
+  if (!RESCHEDULABLE_STATUSES.includes(booking.status)) {
+    return { error: "This booking can no longer be rescheduled." };
+  }
+
+  const settings = await getSettings();
+  const hoursRows = await getBusinessHours();
+  const blackouts = await getBlackoutDateSet();
+
+  const range = isValidBookingRange({
+    tz: settings.timezone,
+    slotDurationMin: settings.slotDurationMin,
+    leadMinutes: settings.leadMinutes,
+    hours: hoursRows,
+    blackouts,
+    startMs,
+    durationHours: hours,
+    now: new Date(),
+  });
+  if (!range) return { error: "That time is not a valid open slot. Please pick another." };
+
+  const conflict = await prisma.booking.findFirst({
+    where: {
+      id: { not: bookingId },
+      courtId,
+      status: { in: [...ACTIVE_STATUSES] },
+      startUtc: { lt: range.end },
+      endUtc: { gt: range.start },
+    },
+    select: { id: true },
+  });
+  if (conflict) return { error: "That slot is already booked. Please pick another time." };
+
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: { courtId, startUtc: range.start, endUtc: range.end, hours },
+  });
+  revalidateBookingViews(bookingId);
+  revalidatePath("/my-bookings");
+  return { ok: true };
+}
+
 // ---- Settings -------------------------------------------------------------
 
 export async function updateSettings(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -81,6 +171,7 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
   const businessName = String(formData.get("businessName") ?? "").trim();
   const contactPerson = String(formData.get("contactPerson") ?? "").trim();
   const contactPhone = String(formData.get("contactPhone") ?? "").trim();
+  const contactEmail = String(formData.get("contactEmail") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
   const priceInput = Number(formData.get("price"));
   const currency = String(formData.get("currency") ?? "PHP").trim().toUpperCase();
@@ -106,6 +197,7 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
       businessName,
       contactPerson,
       contactPhone,
+      contactEmail,
       address,
       priceCentsPerHour: Math.round(priceInput * 100),
       currency,

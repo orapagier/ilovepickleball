@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { CalendarCheck, Clock, MapPin, Phone, ShieldCheck, User } from "lucide-react";
+import { CalendarCheck, Clock, Mail, MapPin, Phone, Trophy, User } from "lucide-react";
 import { getSettings, getActiveCourts, getBusinessHours } from "@/lib/booking-data";
 import { getSessionUser } from "@/lib/auth-helpers";
-import { summarizeHours } from "@/lib/hours-summary";
+import { summarizeHours, closedWindowLabel } from "@/lib/hours-summary";
 import { formatMoney } from "@/lib/format";
 
 const HERO_IMAGE_PATH = path.join(process.cwd(), "public", "hero-court.jpg");
@@ -17,6 +17,7 @@ export default async function Home() {
     getSessionUser(),
   ]);
   const hourLines = summarizeHours(hours);
+  const closedLabel = closedWindowLabel(hours);
   const hasHeroImage = fs.existsSync(HERO_IMAGE_PATH);
 
   return (
@@ -37,11 +38,11 @@ export default async function Home() {
             </p>
             <h1 className="mt-4 text-4xl font-bold leading-[1.05] md:text-6xl">{settings.businessName}</h1>
             <p className="mt-5 max-w-lg text-base text-navy-foreground/80 md:text-lg">
-              Reserve your pickleball court online in minutes.
+              Book your court. Bring your paddle.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href={user ? "/book" : "/api/auth/signin"}
+                href={user ? "/book" : "/signin"}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
               >
                 <CalendarCheck className="size-4" />
@@ -95,12 +96,12 @@ export default async function Home() {
           </article>
 
           <article className="surface-card p-6">
-            <ShieldCheck className="size-5 text-primary" />
-            <h2 className="mt-4 text-lg font-semibold">How payment works</h2>
+            <Trophy className="size-5 text-primary" />
+            <h2 className="mt-4 text-lg font-semibold">Weekly rest day</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Pay instantly via GCash, or for multi-hour bookings call us to arrange payment — your slot is held for{" "}
-              {settings.holdMinutes} minutes.
+              {closedLabel ? `Closed ${closedLabel}` : "Open every hour, every day."}
             </p>
+            {closedLabel && <p className="mt-2 text-sm text-muted-foreground">Closed for Sabbath rest.</p>}
           </article>
 
           <article className="surface-card p-6">
@@ -112,7 +113,7 @@ export default async function Home() {
 
         <div className="mt-6 surface-card p-6">
           <h2 className="text-lg font-semibold">Contact</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <p className="flex items-center gap-2 text-sm">
               <User className="size-4 text-primary" />
               {settings.contactPerson || "—"}
@@ -120,6 +121,10 @@ export default async function Home() {
             <p className="flex items-center gap-2 text-sm">
               <Phone className="size-4 text-primary" />
               {settings.contactPhone || "—"}
+            </p>
+            <p className="flex items-center gap-2 text-sm">
+              <Mail className="size-4 text-primary" />
+              {settings.contactEmail || "—"}
             </p>
           </div>
         </div>

@@ -63,6 +63,7 @@ model Setting {
   businessName      String @default("Smash Zone Pickleball Tagum")
   contactPerson     String @default("")
   contactPhone      String @default("")
+  contactEmail      String @default("")
   address           String @default("")
   priceCentsPerHour Int    @default(30000)
   currency          String @default("PHP")

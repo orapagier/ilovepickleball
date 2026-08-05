@@ -21,7 +21,7 @@ const CANCELLABLE = ["pending_payment", "awaiting_confirmation", "awaiting_call"
 
 export default async function MyBookingsPage() {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin?callbackUrl=/my-bookings");
 
   await reapExpiredBookings();
 

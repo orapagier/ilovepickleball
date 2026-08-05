@@ -11,7 +11,7 @@ import { CancelButton } from "@/components/booking/cancel-button";
 export default async function BookingDetailPage(props: PageProps<"/book/[id]">) {
   const { id } = await props.params;
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect(`/signin?callbackUrl=/book/${id}`);
 
   await reapExpiredBookings();
 

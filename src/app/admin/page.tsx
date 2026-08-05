@@ -63,7 +63,7 @@ export default async function AdminQueuePage() {
                     Ref: <strong>{b.payment?.referenceNumber}</strong>
                   </p>
                   <ActionButton
-                    action={() => verifyBooking(b.id)}
+                    action={verifyBooking.bind(null, b.id)}
                     className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
                   >
                     Verify
@@ -75,13 +75,13 @@ export default async function AdminQueuePage() {
               {b.status === "awaiting_call" && (
                 <div className="mt-3 flex flex-wrap gap-3">
                   <ActionButton
-                    action={() => confirmCallBooking(b.id)}
+                    action={confirmCallBooking.bind(null, b.id)}
                     className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
                   >
                     Confirm call received
                   </ActionButton>
                   <ActionButton
-                    action={() => adminCancelBooking(b.id)}
+                    action={adminCancelBooking.bind(null, b.id)}
                     confirmMessage="Cancel this booking?"
                     className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
                   >

@@ -20,6 +20,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: "jwt" },
+  pages: { signIn: "/signin" },
   callbacks: {
     async jwt({ token, user }) {
       // `user` is only populated on the initial sign-in, which is exactly

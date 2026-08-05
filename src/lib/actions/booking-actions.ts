@@ -13,7 +13,7 @@ const MAX_BOOKING_HOURS = 6;
 
 export async function createBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin");
 
   const courtId = Number(formData.get("courtId"));
   const startMs = Number(formData.get("startMs"));
@@ -90,7 +90,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
 
 export async function submitPayment(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin");
 
   const bookingId = String(formData.get("bookingId") ?? "");
   const reference = String(formData.get("referenceNumber") ?? "").trim();
@@ -140,7 +140,7 @@ const CANCELLABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "await
 
 export async function cancelBooking(bookingId: string): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin");
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking || booking.customerId !== user.id) return { error: "Booking not found." };

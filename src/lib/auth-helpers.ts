@@ -19,7 +19,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 /** For Server Components/pages: redirects to sign-in if not authenticated. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect("/api/auth/signin");
+  if (!user) redirect("/signin");
   return user;
 }
 

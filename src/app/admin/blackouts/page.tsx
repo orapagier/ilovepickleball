@@ -23,7 +23,7 @@ export default async function AdminBlackoutsPage() {
                 {b.reason && <p className="text-sm text-muted-foreground">{b.reason}</p>}
               </div>
               <ActionButton
-                action={() => deleteBlackout(iso)}
+                action={deleteBlackout.bind(null, iso)}
                 confirmMessage="Remove this blackout date?"
                 className="rounded-full border border-destructive/30 px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
               >

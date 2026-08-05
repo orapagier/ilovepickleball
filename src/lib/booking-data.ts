@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { reapExpiredBookings } from "@/lib/expiry";
 import type { BusinessHourRow, BusyInterval } from "@/lib/scheduling";
@@ -13,27 +14,30 @@ export const ACTIVE_STATUSES = [
 /** Bookings still waiting on the admin to act, shown in the admin queue. */
 export const PENDING_ACTION_STATUSES = ["awaiting_confirmation", "awaiting_call"] as const;
 
-export async function getSettings() {
+// Wrapped in React's `cache()` so the site header and the page it wraps
+// (which both need settings/courts/hours on every request) share one DB
+// round trip instead of each firing its own query.
+export const getSettings = cache(async () => {
   const settings = await prisma.setting.findUnique({ where: { id: 1 } });
   if (!settings) {
     throw new Error("Settings row missing — run `npx prisma db seed`.");
   }
   return settings;
-}
+});
 
-export async function getBusinessHours(): Promise<BusinessHourRow[]> {
+export const getBusinessHours = cache(async (): Promise<BusinessHourRow[]> => {
   return prisma.businessHour.findMany({ orderBy: [{ weekday: "asc" }, { openMin: "asc" }] });
-}
+});
 
 /** All blackout dates as a set of "YYYY-MM-DD" strings (small dataset, no need to range-filter). */
-export async function getBlackoutDateSet(): Promise<Set<string>> {
+export const getBlackoutDateSet = cache(async (): Promise<Set<string>> => {
   const rows = await prisma.blackoutDate.findMany({ select: { date: true } });
   return new Set(rows.map((r) => r.date.toISOString().slice(0, 10)));
-}
+});
 
-export async function getActiveCourts() {
+export const getActiveCourts = cache(async () => {
   return prisma.court.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } });
-}
+});
 
 /** Busy intervals for a single court overlapping [from, to). Reaps expired holds first. */
 export async function getBusyIntervals(courtId: number, from: Date, to: Date): Promise<BusyInterval[]> {
