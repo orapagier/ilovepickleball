@@ -41,3 +41,12 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# agent tooling artifacts (not part of the app)
+.agents/
+.claude/
+skills-lock.json
+
+
+.vercel
+.env*

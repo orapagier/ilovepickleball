@@ -1,0 +1,6 @@
+.env
+.env.local
+raw codes/
+.agents/
+.claude/
+skills-lock.json
