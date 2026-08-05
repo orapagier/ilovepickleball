@@ -12,16 +12,16 @@ export function RejectForm({ bookingId }: { bookingId: string }) {
       <input
         name="reason"
         placeholder="Reason (optional)"
-        className="rounded-lg border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        className="rounded-lg border border-input bg-background px-2 py-1 text-sm"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+        className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
       >
         {pending ? "…" : "Invalid ref → cash on-site"}
       </button>
-      {state?.error && <span className="text-xs text-red-600 dark:text-red-400">{state.error}</span>}
+      {state?.error && <span className="text-xs text-destructive">{state.error}</span>}
     </form>
   );
 }

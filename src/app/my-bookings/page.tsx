@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/booking-data";
 import { reapExpiredBookings } from "@/lib/expiry";
 import { formatMoney } from "@/lib/format";
 import { CancelButton } from "@/components/booking/cancel-button";
+import { cn } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Pending payment",
@@ -34,61 +35,67 @@ export default async function MyBookingsPage() {
   ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">My bookings</h1>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <h1 className="text-3xl font-bold">My bookings</h1>
+        <Link
+          href="/book"
+          className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+        >
+          Book another court
+        </Link>
+      </div>
 
-      {bookings.length === 0 && (
-        <p className="text-zinc-600 dark:text-zinc-300">
-          No bookings yet.{" "}
-          <Link href="/book" className="text-emerald-700 underline dark:text-emerald-400">
-            Book a court
-          </Link>
-          .
+      {bookings.length === 0 ? (
+        <p className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No bookings yet. Reserve your first court slot to see it here.
         </p>
-      )}
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {bookings.map((b) => {
+            const dateLabel = new Intl.DateTimeFormat("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              timeZone: settings.timezone,
+            }).format(b.startUtc);
 
-      <ul className="flex flex-col gap-3">
-        {bookings.map((b) => {
-          const dateLabel = new Intl.DateTimeFormat("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-            timeZone: settings.timezone,
-          }).format(b.startUtc);
-
-          return (
-            <li
-              key={b.id}
-              className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-medium text-zinc-900 dark:text-zinc-50">
+            return (
+              <li key={b.id} className="surface-card flex flex-wrap items-center gap-4 p-5">
+                <div className="min-w-48 grow">
+                  <p className="font-semibold">
                     {b.court.name} — {dateLabel}
                   </p>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                    {b.hours}h · {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)} ·{" "}
-                    {STATUS_LABELS[b.status] ?? b.status}
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {b.hours}h · {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)}
                   </p>
                 </div>
-                <Link
-                  href={`/book/${b.id}`}
-                  className="text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+
+                <span
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-medium",
+                    b.status === "cancelled" || b.status === "expired"
+                      ? "bg-destructive/10 text-destructive"
+                      : b.status === "confirmed"
+                        ? "bg-success/10 text-success"
+                        : "bg-secondary text-secondary-foreground",
+                  )}
                 >
+                  {STATUS_LABELS[b.status] ?? b.status}
+                </span>
+
+                <Link href={`/book/${b.id}`} className="text-sm font-medium text-primary hover:underline">
                   View
                 </Link>
-              </div>
-              {CANCELLABLE.includes(b.status) && (
-                <div className="mt-2">
-                  <CancelButton bookingId={b.id} />
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+
+                {CANCELLABLE.includes(b.status) && <CancelButton bookingId={b.id} />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

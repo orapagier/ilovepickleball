@@ -17,21 +17,21 @@ export function AddBlackoutForm() {
         type="date"
         name="date"
         required
-        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
       />
       <input
         name="reason"
         placeholder="Reason (optional)"
-        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+        className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
       >
         {pending ? "Adding…" : "Add blackout date"}
       </button>
-      {state?.error && <span className="text-xs text-red-600 dark:text-red-400">{state.error}</span>}
+      {state?.error && <span className="text-xs text-destructive">{state.error}</span>}
     </form>
   );
 }

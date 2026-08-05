@@ -6,7 +6,7 @@ export default async function AdminHoursPage() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Weekly hours</h1>
+      <h1 className="text-3xl font-bold">Weekly hours</h1>
       <HoursForm hours={hours} />
     </div>
   );

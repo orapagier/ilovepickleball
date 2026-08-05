@@ -20,7 +20,7 @@ export function Countdown({ expiresAtMs }: { expiresAtMs: number }) {
   }, [expiresAtMs, router]);
 
   if (remaining <= 0) {
-    return <p className="text-sm font-medium text-red-600 dark:text-red-400">This hold has expired.</p>;
+    return <p className="text-sm font-medium text-destructive">This hold has expired.</p>;
   }
 
   const totalSeconds = Math.floor(remaining / 1000);
@@ -28,7 +28,7 @@ export function Countdown({ expiresAtMs }: { expiresAtMs: number }) {
   const seconds = totalSeconds % 60;
 
   return (
-    <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+    <p className="text-sm font-medium text-warning">
       Time remaining: {minutes}:{String(seconds).padStart(2, "0")}
     </p>
   );

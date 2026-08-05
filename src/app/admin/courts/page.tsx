@@ -7,7 +7,7 @@ export default async function AdminCourtsPage() {
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Courts</h1>
+      <h1 className="text-3xl font-bold">Courts</h1>
       <ul className="flex flex-col gap-3">
         {courts.map((c) => (
           <CourtRow key={c.id} court={c} />

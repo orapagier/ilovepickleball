@@ -1,75 +1,135 @@
+import fs from "node:fs";
+import path from "node:path";
 import Link from "next/link";
+import { CalendarCheck, Clock, MapPin, Phone, ShieldCheck, User } from "lucide-react";
 import { getSettings, getActiveCourts, getBusinessHours } from "@/lib/booking-data";
+import { getSessionUser } from "@/lib/auth-helpers";
 import { summarizeHours } from "@/lib/hours-summary";
 import { formatMoney } from "@/lib/format";
 
+const HERO_IMAGE_PATH = path.join(process.cwd(), "public", "hero-court.jpg");
+
 export default async function Home() {
-  const [settings, courts, hours] = await Promise.all([
+  const [settings, courts, hours, user] = await Promise.all([
     getSettings(),
     getActiveCourts(),
     getBusinessHours(),
+    getSessionUser(),
   ]);
   const hourLines = summarizeHours(hours);
+  const hasHeroImage = fs.existsSync(HERO_IMAGE_PATH);
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-gradient-to-b from-emerald-50 to-zinc-50 dark:from-zinc-900 dark:to-zinc-950">
-      <section className="flex w-full max-w-4xl flex-col items-center gap-6 px-4 py-20 text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-50">
-          {settings.businessName}
-        </h1>
-        <p className="max-w-xl text-lg text-zinc-600 dark:text-zinc-300">
-          Reserve your pickleball court online in minutes — {courts.length} court
-          {courts.length === 1 ? "" : "s"} available, {formatMoney(settings.priceCentsPerHour, settings.currency)}{" "}
-          per hour.
-        </p>
-        <Link
-          href="/book"
-          className="rounded-full bg-emerald-600 px-8 py-3 text-lg font-semibold text-white shadow transition-colors hover:bg-emerald-700"
-        >
-          Book Now
-        </Link>
+    <div className="flex flex-1 flex-col bg-background">
+      <section className="court-panel relative overflow-hidden">
+        {hasHeroImage && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src="/hero-court.jpg"
+            alt="Pickleball court at Smash Zone Tagum"
+            className="absolute inset-0 size-full object-cover opacity-30"
+          />
+        )}
+        <div className="relative mx-auto grid max-w-6xl gap-10 px-4 py-20 md:grid-cols-[1.15fr_0.85fr] md:py-28">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-navy-foreground/70">
+              Tagum City · Davao del Norte
+            </p>
+            <h1 className="mt-4 text-4xl font-bold leading-[1.05] md:text-6xl">{settings.businessName}</h1>
+            <p className="mt-5 max-w-lg text-base text-navy-foreground/80 md:text-lg">
+              Reserve your pickleball court online in minutes.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href={user ? "/book" : "/api/auth/signin"}
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+              >
+                <CalendarCheck className="size-4" />
+                {user ? "Book a court" : "Sign in to book"}
+              </Link>
+              <a
+                href="#details"
+                className="inline-flex items-center gap-2 rounded-full bg-navy-foreground/10 px-6 py-3 text-sm font-semibold text-navy-foreground transition-colors hover:bg-navy-foreground/20"
+              >
+                View rates &amp; hours
+              </a>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-navy-foreground/15 bg-navy-foreground/10 p-6 backdrop-blur">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-foreground/70">Court rate</p>
+            <p className="mt-2 text-5xl font-bold">
+              {formatMoney(settings.priceCentsPerHour, settings.currency)}
+              <span className="text-lg font-medium text-navy-foreground/70"> / hour</span>
+            </p>
+            <dl className="mt-6 space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
+                <dt className="text-navy-foreground/70">Courts available</dt>
+                <dd className="font-semibold">{courts.length}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
+                <dt className="text-navy-foreground/70">Slot length</dt>
+                <dd className="font-semibold">{settings.slotDurationMin} min</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
+                <dt className="text-navy-foreground/70">Minimum notice</dt>
+                <dd className="font-semibold">{settings.leadMinutes} min</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
       </section>
 
-      <section className="grid w-full max-w-4xl gap-6 px-4 pb-20 sm:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">Hours</h2>
-          <ul className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
-            {hourLines.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Closed Friday sunset – Saturday sunset for Sabbath.
-          </p>
+      <section id="details" className="mx-auto max-w-6xl px-4 py-16">
+        <div className="grid gap-6 md:grid-cols-3">
+          <article className="surface-card p-6">
+            <Clock className="size-5 text-primary" />
+            <h2 className="mt-4 text-lg font-semibold">Opening hours</h2>
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+              {hourLines.length > 0 ? (
+                hourLines.map((line) => <li key={line}>{line}</li>)
+              ) : (
+                <li>Hours not set yet.</li>
+              )}
+            </ul>
+          </article>
+
+          <article className="surface-card p-6">
+            <ShieldCheck className="size-5 text-primary" />
+            <h2 className="mt-4 text-lg font-semibold">How payment works</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Pay instantly via GCash, or for multi-hour bookings call us to arrange payment — your slot is held for{" "}
+              {settings.holdMinutes} minutes.
+            </p>
+          </article>
+
+          <article className="surface-card p-6">
+            <MapPin className="size-5 text-primary" />
+            <h2 className="mt-4 text-lg font-semibold">Where to find us</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{settings.address || "Tagum City, Davao del Norte"}</p>
+          </article>
         </div>
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">Contact</h2>
-          <dl className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
-            {settings.contactPerson && (
-              <div>
-                <dt className="inline font-medium">Contact: </dt>
-                <dd className="inline">{settings.contactPerson}</dd>
-              </div>
-            )}
-            {settings.contactPhone && (
-              <div>
-                <dt className="inline font-medium">Phone: </dt>
-                <dd className="inline">{settings.contactPhone}</dd>
-              </div>
-            )}
-            {settings.address && (
-              <div>
-                <dt className="inline font-medium">Address: </dt>
-                <dd className="inline">{settings.address}</dd>
-              </div>
-            )}
-            {!settings.contactPerson && !settings.contactPhone && !settings.address && (
-              <p className="text-zinc-400">Contact details coming soon.</p>
-            )}
-          </dl>
+        <div className="mt-6 surface-card p-6">
+          <h2 className="text-lg font-semibold">Contact</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <p className="flex items-center gap-2 text-sm">
+              <User className="size-4 text-primary" />
+              {settings.contactPerson || "—"}
+            </p>
+            <p className="flex items-center gap-2 text-sm">
+              <Phone className="size-4 text-primary" />
+              {settings.contactPhone || "—"}
+            </p>
+          </div>
         </div>
       </section>
+
+      <footer className="border-t border-border py-8">
+        <div className="mx-auto max-w-6xl px-4 text-sm text-muted-foreground">
+          © {new Date().getFullYear()} {settings.businessName}
+        </div>
+      </footer>
     </div>
   );
 }

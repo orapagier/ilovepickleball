@@ -20,11 +20,11 @@ export function CancelButton({ bookingId }: { bookingId: string }) {
             if (res.error) setError(res.error);
           });
         }}
-        className="rounded-full border border-red-300 px-4 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+        className="rounded-full border border-destructive/30 px-4 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
       >
         {pending ? "Cancelling…" : "Cancel booking"}
       </button>
-      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }

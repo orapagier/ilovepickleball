@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Raw reference dumps from Lovable — not part of the app, not meant to compile/lint.
+    "codes for reference/**",
   ]),
 ]);
 

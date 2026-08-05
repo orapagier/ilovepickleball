@@ -20,9 +20,11 @@ export default async function AdminQueuePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Pending actions</h1>
+      <h1 className="text-3xl font-bold">Pending actions</h1>
       {bookings.length === 0 && (
-        <p className="text-zinc-600 dark:text-zinc-300">Nothing needs your attention right now.</p>
+        <p className="surface-card p-8 text-center text-sm text-muted-foreground">
+          Nothing needs your attention right now.
+        </p>
       )}
       <ul className="flex flex-col gap-3">
         {bookings.map((b) => {
@@ -36,36 +38,33 @@ export default async function AdminQueuePage() {
           }).format(b.startUtc);
 
           return (
-            <li
-              key={b.id}
-              className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-            >
+            <li key={b.id} className="surface-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                  <p className="font-semibold">
                     {b.court.name} — {dateLabel} ({b.hours}h)
                   </p>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                  <p className="text-sm text-muted-foreground">
                     {b.customer.name || b.customer.email} ·{" "}
                     {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)}
                   </p>
                   {b.customerNote && (
-                    <p className="text-sm italic text-zinc-500 dark:text-zinc-400">&ldquo;{b.customerNote}&rdquo;</p>
+                    <p className="text-sm italic text-muted-foreground">&ldquo;{b.customerNote}&rdquo;</p>
                   )}
                 </div>
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <span className="rounded-full bg-warning/15 px-3 py-1 text-xs font-medium whitespace-nowrap text-warning">
                   {b.status === "awaiting_confirmation" ? "GCash submitted" : "Awaiting call"}
                 </span>
               </div>
 
               {b.status === "awaiting_confirmation" && (
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-zinc-700 dark:text-zinc-200">
+                  <p className="text-sm">
                     Ref: <strong>{b.payment?.referenceNumber}</strong>
                   </p>
                   <ActionButton
                     action={() => verifyBooking(b.id)}
-                    className="rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+                    className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
                   >
                     Verify
                   </ActionButton>
@@ -77,14 +76,14 @@ export default async function AdminQueuePage() {
                 <div className="mt-3 flex flex-wrap gap-3">
                   <ActionButton
                     action={() => confirmCallBooking(b.id)}
-                    className="rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+                    className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
                   >
                     Confirm call received
                   </ActionButton>
                   <ActionButton
                     action={() => adminCancelBooking(b.id)}
                     confirmMessage="Cancel this booking?"
-                    className="rounded-full border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
                   >
                     Cancel
                   </ActionButton>

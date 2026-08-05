@@ -19,97 +19,102 @@ type Settings = {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+    <label className="flex flex-col gap-1 text-sm font-medium">
       {label}
       {children}
     </label>
   );
 }
 
-const inputClass =
-  "rounded-lg border border-zinc-300 px-3 py-2 text-sm font-normal dark:border-zinc-700 dark:bg-zinc-900";
+const inputClass = "rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal";
 
 export function SettingsForm({ settings }: { settings: Settings }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(updateSettings, {});
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
-      <Field label="Business name">
-        <input name="businessName" defaultValue={settings.businessName} required className={inputClass} />
-      </Field>
+    <form action={formAction} className="flex flex-col gap-6">
+      <section className="surface-card p-6">
+        <h2 className="text-lg font-semibold">Court details</h2>
+        <div className="mt-4 flex flex-col gap-4">
+          <Field label="Business name">
+            <input name="businessName" defaultValue={settings.businessName} required className={inputClass} />
+          </Field>
+          <Field label="Address">
+            <input name="address" defaultValue={settings.address} className={inputClass} />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Price per hour">
+              <input
+                name="price"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={(settings.priceCentsPerHour / 100).toFixed(2)}
+                required
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Currency">
+              <input name="currency" defaultValue={settings.currency} required className={inputClass} />
+            </Field>
+            <Field label="Timezone (IANA)">
+              <input name="timezone" defaultValue={settings.timezone} required className={inputClass} />
+            </Field>
+          </div>
+        </div>
+      </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Contact person">
-          <input name="contactPerson" defaultValue={settings.contactPerson} className={inputClass} />
-        </Field>
-        <Field label="Contact phone">
-          <input name="contactPhone" defaultValue={settings.contactPhone} className={inputClass} />
-        </Field>
-      </div>
+      <section className="surface-card p-6">
+        <h2 className="text-lg font-semibold">Contact person</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="Contact person">
+            <input name="contactPerson" defaultValue={settings.contactPerson} className={inputClass} />
+          </Field>
+          <Field label="Contact phone">
+            <input name="contactPhone" defaultValue={settings.contactPhone} className={inputClass} />
+          </Field>
+        </div>
+      </section>
 
-      <Field label="Address">
-        <input name="address" defaultValue={settings.address} className={inputClass} />
-      </Field>
+      <section className="surface-card p-6">
+        <h2 className="text-lg font-semibold">Payment &amp; hold policy</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="GCash account name">
+            <input name="gcashName" defaultValue={settings.gcashName} className={inputClass} />
+          </Field>
+          <Field label="GCash number">
+            <input name="gcashNumber" defaultValue={settings.gcashNumber} className={inputClass} />
+          </Field>
+          <Field label="Hold time before auto-cancel (minutes)">
+            <input
+              name="holdMinutes"
+              type="number"
+              min="1"
+              defaultValue={settings.holdMinutes}
+              required
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Minimum advance notice (minutes)">
+            <input
+              name="leadMinutes"
+              type="number"
+              min="0"
+              defaultValue={settings.leadMinutes}
+              required
+              className={inputClass}
+            />
+          </Field>
+        </div>
+      </section>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Price per hour">
-          <input
-            name="price"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={(settings.priceCentsPerHour / 100).toFixed(2)}
-            required
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Currency">
-          <input name="currency" defaultValue={settings.currency} required className={inputClass} />
-        </Field>
-        <Field label="Timezone (IANA)">
-          <input name="timezone" defaultValue={settings.timezone} required className={inputClass} />
-        </Field>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="GCash account name">
-          <input name="gcashName" defaultValue={settings.gcashName} className={inputClass} />
-        </Field>
-        <Field label="GCash number">
-          <input name="gcashNumber" defaultValue={settings.gcashNumber} className={inputClass} />
-        </Field>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Hold time before auto-cancel (minutes)">
-          <input
-            name="holdMinutes"
-            type="number"
-            min="1"
-            defaultValue={settings.holdMinutes}
-            required
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Minimum advance notice (minutes)">
-          <input
-            name="leadMinutes"
-            type="number"
-            min="0"
-            defaultValue={settings.leadMinutes}
-            required
-            className={inputClass}
-          />
-        </Field>
-      </div>
-
-      {state?.error && <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>}
-      {state?.ok && <p className="text-sm text-emerald-700 dark:text-emerald-400">Saved.</p>}
+      {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+      {state?.ok && <p className="text-sm text-success">Saved.</p>}
 
       <button
         type="submit"
         disabled={pending}
-        className="w-fit rounded-full bg-emerald-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+        className="w-fit rounded-full bg-primary px-6 py-2 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
       >
         {pending ? "Saving…" : "Save settings"}
       </button>

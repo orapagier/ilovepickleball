@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/booking-data";
 import { formatMoney } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Pending payment",
@@ -30,18 +31,19 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">All bookings</h1>
+      <h1 className="text-3xl font-bold">All bookings</h1>
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <Link
             key={f}
             href={f === "all" ? "/admin/bookings" : `/admin/bookings?status=${f}`}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
               status === f
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200"
-            }`}
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:bg-accent",
+            )}
           >
             {f === "all" ? "All" : STATUS_LABELS[f]}
           </Link>
@@ -59,15 +61,12 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
             timeZone: settings.timezone,
           }).format(b.startUtc);
           return (
-            <li
-              key={b.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
-            >
+            <li key={b.id} className="surface-card flex items-center justify-between gap-3 p-3">
               <div>
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                <p className="font-medium">
                   {b.court.name} — {dateLabel} ({b.hours}h)
                 </p>
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                <p className="text-sm text-muted-foreground">
                   {b.customer.name || b.customer.email} ·{" "}
                   {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)} ·{" "}
                   {STATUS_LABELS[b.status] ?? b.status}
@@ -77,7 +76,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
             </li>
           );
         })}
-        {bookings.length === 0 && <p className="text-sm text-zinc-500 dark:text-zinc-400">No bookings found.</p>}
+        {bookings.length === 0 && <p className="text-sm text-muted-foreground">No bookings found.</p>}
       </ul>
     </div>
   );

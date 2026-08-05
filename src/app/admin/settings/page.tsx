@@ -6,7 +6,7 @@ export default async function AdminSettingsPage() {
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Settings</h1>
+      <h1 className="text-3xl font-bold">Settings</h1>
       <SettingsForm settings={settings} />
     </div>
   );

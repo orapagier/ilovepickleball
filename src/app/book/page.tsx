@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { DateTime } from "luxon";
 import { getActiveCourts, getSettings } from "@/lib/booking-data";
 import { getSessionUser } from "@/lib/auth-helpers";
+import { formatMoney } from "@/lib/format";
 import { BookingFlow } from "@/components/booking/booking-flow";
 
 export default async function BookPage() {
@@ -9,9 +11,23 @@ export default async function BookPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <h1 className="mx-auto w-full max-w-2xl px-4 pt-8 text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-        Book a court
-      </h1>
+      <div className="mx-auto flex w-full max-w-2xl flex-wrap items-end justify-between gap-4 px-4 pt-8">
+        <div>
+          <h1 className="text-3xl font-bold">Book a court</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {formatMoney(settings.priceCentsPerHour, settings.currency)} per hour · {courts.length} courts ·{" "}
+            {settings.slotDurationMin}-min slots
+          </p>
+        </div>
+        {user && (
+          <Link
+            href="/my-bookings"
+            className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            My bookings
+          </Link>
+        )}
+      </div>
       <BookingFlow
         courts={courts}
         todayISO={todayISO}
