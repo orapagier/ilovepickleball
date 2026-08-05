@@ -57,12 +57,23 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
       <div className="surface-card p-5">
         {booking.status === "pending_payment" && (
           <div className="flex flex-col gap-4">
-            <div>
-              <h2 className="mb-1 font-semibold">Pay to reserve</h2>
-              <p className="text-sm text-muted-foreground">
-                Send {formatMoney(totalCents, settings.currency)}, then submit your reference number below.
-              </p>
-            </div>
+            {booking.payment?.status === "rejected" ? (
+              <div>
+                <h2 className="mb-1 font-semibold text-destructive">Fix your reference number</h2>
+                <p className="text-sm text-muted-foreground">
+                  We couldn&apos;t verify the reference number you submitted
+                  {booking.payment.rejectReason ? `: ${booking.payment.rejectReason}` : "."} Double-check it and
+                  resubmit before the timer runs out, or this booking will be cancelled automatically.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <h2 className="mb-1 font-semibold">Pay to reserve</h2>
+                <p className="text-sm text-muted-foreground">
+                  Send {formatMoney(totalCents, settings.currency)}, then submit your reference number below.
+                </p>
+              </div>
+            )}
             {booking.expiresAt && <Countdown expiresAtMs={booking.expiresAt.getTime()} />}
             <PaymentPanel
               bookingId={booking.id}
@@ -117,7 +128,11 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
         )}
 
         {booking.status === "cancelled" && (
-          <p className="text-sm text-muted-foreground">This booking was cancelled.</p>
+          <p className="text-sm text-muted-foreground">
+            {booking.payment?.status === "rejected"
+              ? "This booking was cancelled automatically because the reference number wasn't corrected in time."
+              : "This booking was cancelled."}
+          </p>
         )}
 
         {booking.status === "expired" && (

@@ -42,6 +42,7 @@ model User {
   googleSub String   @unique
   email     String   @unique
   name      String   @default("")
+  phone     String   @default("")
   image     String   @default("")
   role      Role     @default(customer)
   createdAt DateTime @default(now()) @db.Timestamptz(3)

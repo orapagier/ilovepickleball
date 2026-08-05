@@ -17,9 +17,10 @@ export function RejectForm({ bookingId }: { bookingId: string }) {
       <button
         type="submit"
         disabled={pending}
+        title="Gives the customer 30 minutes to resubmit a corrected reference number, then auto-cancels."
         className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
       >
-        {pending ? "…" : "Invalid ref → cash on-site"}
+        {pending ? "…" : "Invalid ref — 30 min to fix"}
       </button>
       {state?.error && <span className="text-xs text-destructive">{state.error}</span>}
     </form>

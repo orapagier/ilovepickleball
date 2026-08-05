@@ -2,8 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { DateTime } from "luxon";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser } from "@/lib/auth-helpers";
+import { getSessionUser, getProfileCompletion } from "@/lib/auth-helpers";
 import {
   getSettings,
   getBusinessHours,
@@ -12,7 +13,7 @@ import {
   getPriceTiers,
   ACTIVE_STATUSES,
 } from "@/lib/booking-data";
-import { isValidBookingRange, isFree } from "@/lib/scheduling";
+import { isValidBookingRange, isFree, MAX_ADVANCE_DAYS } from "@/lib/scheduling";
 import { computeBookingPriceCents } from "@/lib/pricing";
 
 export type ActionState = { error?: string; ok?: boolean };
@@ -24,7 +25,10 @@ const REFERENCE_PAY_METHODS = ["gcash", "bdo", "qrph"] as const;
 
 export async function createBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) redirect("/signin");
+  if (!user) redirect("/signin?callbackUrl=/book");
+
+  const { complete: profileComplete } = await getProfileCompletion(user.id);
+  if (!profileComplete) redirect("/register?callbackUrl=/book");
 
   const courtId = Number(formData.get("courtId"));
   const startMs = Number(formData.get("startMs"));
@@ -55,6 +59,12 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
   });
   if (!range) {
     return { error: "That time is no longer a valid open slot. Please pick another." };
+  }
+
+  const maxISO = DateTime.fromJSDate(now, { zone: settings.timezone }).plus({ days: MAX_ADVANCE_DAYS }).toFormat("yyyy-LL-dd");
+  const startISO = DateTime.fromJSDate(range.start, { zone: settings.timezone }).toFormat("yyyy-LL-dd");
+  if (startISO > maxISO) {
+    return { error: `Bookings can only be made up to ${MAX_ADVANCE_DAYS} days in advance.` };
   }
 
   const busy = await getBusyIntervals(courtId, range.start, range.end);

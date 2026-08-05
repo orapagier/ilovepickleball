@@ -11,6 +11,9 @@ export type ActionState = { error?: string; ok?: boolean };
 
 const MAX_BOOKING_HOURS = 6;
 const RESCHEDULABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
+/** How long a customer has to resubmit a corrected reference number after
+ *  the admin flags one as invalid, before the hold auto-cancels. */
+const REFERENCE_CORRECTION_MINUTES = 30;
 
 async function requireAdminOrThrow(): Promise<SessionUser> {
   const user = await getSessionUser();
@@ -51,9 +54,12 @@ export async function rejectBooking(_prev: ActionState, formData: FormData): Pro
   if (!booking || booking.status !== "awaiting_confirmation") {
     return { error: "Only bookings awaiting confirmation can be rejected." };
   }
-  // Invalid GCash reference: convert straight to a confirmed, pay-cash-on-site
-  // booking rather than bouncing back for resubmission.
-  await prisma.booking.update({ where: { id: bookingId }, data: { status: "confirmed", payMethod: "cash_onsite" } });
+  // Invalid reference number: give the customer a correction window to
+  // resubmit instead of auto-confirming or cancelling outright. Reusing
+  // pending_payment lets the existing submitPayment flow accept the
+  // resubmission; reapExpiredBookings cancels it if the window lapses.
+  const expiresAt = new Date(Date.now() + REFERENCE_CORRECTION_MINUTES * 60_000);
+  await prisma.booking.update({ where: { id: bookingId }, data: { status: "pending_payment", expiresAt } });
   await prisma.payment.update({ where: { bookingId }, data: { status: "rejected", rejectReason: reason } });
   revalidateBookingViews(bookingId);
   return { ok: true };

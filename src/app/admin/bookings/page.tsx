@@ -25,6 +25,11 @@ const DELETE_AFTER_DAYS = 30;
 
 const FILTERS = ["all", ...Object.keys(STATUS_LABELS)];
 
+function statusLabel(b: { status: string; payment: { status: string } | null }): string {
+  if (b.status === "pending_payment" && b.payment?.status === "rejected") return "Fixing reference number";
+  return STATUS_LABELS[b.status] ?? b.status;
+}
+
 export default async function AdminBookingsPage(props: PageProps<"/admin/bookings">) {
   const searchParams = await props.searchParams;
   const status = typeof searchParams.status === "string" ? searchParams.status : "all";
@@ -32,7 +37,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
   const [bookings, settings, courts, tiers] = await Promise.all([
     prisma.booking.findMany({
       where: status === "all" ? {} : { status: status as never },
-      include: { court: true, customer: true },
+      include: { court: true, customer: true, payment: true },
       orderBy: { startUtc: "desc" },
       take: 200,
     }),
@@ -96,7 +101,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {b.customer.name || b.customer.email} · {formatMoney(totalCents, settings.currency)} ·{" "}
-                  {STATUS_LABELS[b.status] ?? b.status}
+                  {statusLabel(b)}
                   {b.payMethod ? ` · ${PAY_METHOD_LABELS[b.payMethod] ?? b.payMethod}` : ""}
                 </p>
                 {editable && (

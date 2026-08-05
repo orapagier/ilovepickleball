@@ -20,6 +20,11 @@ const STATUS_LABELS: Record<string, string> = {
 
 const CANCELLABLE = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
 
+function statusLabel(b: { status: string; payment: { status: string } | null }): string {
+  if (b.status === "pending_payment" && b.payment?.status === "rejected") return "Fix reference number";
+  return STATUS_LABELS[b.status] ?? b.status;
+}
+
 export default async function MyBookingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/signin?callbackUrl=/my-bookings");
@@ -29,7 +34,7 @@ export default async function MyBookingsPage() {
   const [bookings, settings, tiers] = await Promise.all([
     prisma.booking.findMany({
       where: { customerId: user.id },
-      include: { court: true },
+      include: { court: true, payment: true },
       orderBy: { startUtc: "desc" },
     }),
     getSettings(),
@@ -93,7 +98,7 @@ export default async function MyBookingsPage() {
                         : "bg-secondary text-secondary-foreground",
                   )}
                 >
-                  {STATUS_LABELS[b.status] ?? b.status}
+                  {statusLabel(b)}
                 </span>
 
                 <Link href={`/book/${b.id}`} className="text-sm font-medium text-primary hover:underline">

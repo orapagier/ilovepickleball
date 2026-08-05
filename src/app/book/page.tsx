@@ -2,10 +2,11 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { DateTime } from "luxon";
 import { getActiveCourts, getSettings, getBusinessHours, getPriceTiers } from "@/lib/booking-data";
-import { getSessionUser } from "@/lib/auth-helpers";
+import { getSessionUser, getProfileCompletion } from "@/lib/auth-helpers";
 import { formatMoney } from "@/lib/format";
 import { minTierRateCents } from "@/lib/pricing";
 import { closedWindowLabel } from "@/lib/hours-summary";
+import { MAX_ADVANCE_DAYS } from "@/lib/scheduling";
 import { BookingFlow } from "@/components/booking/booking-flow";
 
 export default async function BookPage() {
@@ -17,6 +18,8 @@ export default async function BookPage() {
     getSessionUser(),
   ]);
   const todayISO = DateTime.now().setZone(settings.timezone).toFormat("yyyy-LL-dd");
+  const maxISO = DateTime.now().setZone(settings.timezone).plus({ days: MAX_ADVANCE_DAYS }).toFormat("yyyy-LL-dd");
+  const needsRegistration = user ? !(await getProfileCompletion(user.id)).complete : false;
   const closedLabel = closedWindowLabel(hours);
   const startingRateCents = minTierRateCents(tiers, settings.priceCentsPerHour);
 
@@ -49,6 +52,7 @@ export default async function BookPage() {
       <BookingFlow
         courts={courts}
         todayISO={todayISO}
+        maxISO={maxISO}
         currency={settings.currency}
         priceCentsPerHour={settings.priceCentsPerHour}
         slotDurationMin={settings.slotDurationMin}
@@ -56,6 +60,7 @@ export default async function BookPage() {
         tiers={tiers}
         holdMinutes={settings.holdMinutes}
         signedIn={!!user}
+        needsRegistration={needsRegistration}
         closedLabel={closedLabel}
       />
     </div>

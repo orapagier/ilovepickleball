@@ -28,9 +28,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user?.id) {
         const email = user.email ?? "";
         const role: AppRole = isAdminEmail(email) ? "admin" : "customer";
+        // `name`/`phone` are user-owned once set via the registration form
+        // (see /register) — don't let a repeat Google sign-in silently
+        // overwrite what the customer entered there.
         const dbUser = await prisma.user.upsert({
           where: { googleSub: user.id },
-          update: { email, name: user.name ?? "", image: user.image ?? "", role },
+          update: { email, image: user.image ?? "", role },
           create: {
             googleSub: user.id,
             email,

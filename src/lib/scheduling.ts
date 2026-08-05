@@ -1,5 +1,8 @@
 import { DateTime } from "luxon";
 
+/** Customers can only book courts this many days out from today. */
+export const MAX_ADVANCE_DAYS = 30;
+
 export type BusinessHourRow = { weekday: number; openMin: number; closeMin: number };
 export type BusyInterval = { start: Date; end: Date };
 /** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart from one still awaiting payment/call/verification. */
