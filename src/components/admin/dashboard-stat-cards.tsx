@@ -26,7 +26,7 @@ export function DashboardStatCards({ stats, currency }: { stats: DashboardStats;
       <StatCard
         icon={Wallet}
         label="Net Revenue"
-        tag="after fees"
+        tag={stats.periodLabel}
         value={formatMoney(stats.netRevenueCents, currency)}
         caption="vs last period"
         trendPct={stats.netRevenuePctChange}

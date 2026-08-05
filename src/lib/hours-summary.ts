@@ -1,13 +1,7 @@
+import { formatMinuteOfDay } from "@/lib/format";
+
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_NAMES_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function fmtMin(min: number): string {
-  const h = Math.floor(min / 60) % 24;
-  const m = min % 60;
-  const period = h < 12 ? "AM" : "PM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, "0")} ${period}`;
-}
 
 /** Collapses adjacent weekdays with identical hours into readable ranges. */
 export function summarizeHours(hours: { weekday: number; openMin: number; closeMin: number }[]): string[] {
@@ -30,14 +24,16 @@ export function summarizeHours(hours: { weekday: number; openMin: number; closeM
   return groups.map((g) => {
     const label = g.start === g.end ? WEEKDAY_NAMES[g.start] : `${WEEKDAY_NAMES[g.start]}–${WEEKDAY_NAMES[g.end]}`;
     const span =
-      g.openMin === 0 && g.closeMin === 1440 ? "Open 24 hours" : `${fmtMin(g.openMin)} – ${fmtMin(g.closeMin)}`;
+      g.openMin === 0 && g.closeMin === 1440
+        ? "Open 24 hours"
+        : `${formatMinuteOfDay(g.openMin)} – ${formatMinuteOfDay(g.closeMin)}`;
     return `${label}: ${span}`;
   });
 }
 
 function minuteOfWeekLabel(minuteOfWeek: number): string {
   const day = Math.floor(minuteOfWeek / 1440) % 7;
-  return `${WEEKDAY_NAMES_FULL[day]} ${fmtMin(minuteOfWeek % 1440)}`;
+  return `${WEEKDAY_NAMES_FULL[day]} ${formatMinuteOfDay(minuteOfWeek % 1440)}`;
 }
 
 /**

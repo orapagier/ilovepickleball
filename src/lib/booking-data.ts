@@ -1,7 +1,8 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { reapExpiredBookings } from "@/lib/expiry";
-import type { BusinessHourRow, BusyInterval } from "@/lib/scheduling";
+import type { BusinessHourRow, BusyInterval, StatusInterval } from "@/lib/scheduling";
+import type { PriceTier } from "@/lib/pricing";
 
 /** Booking statuses that occupy a slot (block double-booking a court). */
 export const ACTIVE_STATUSES = [
@@ -39,6 +40,10 @@ export const getActiveCourts = cache(async () => {
   return prisma.court.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } });
 });
 
+export const getPriceTiers = cache(async (): Promise<PriceTier[]> => {
+  return prisma.priceTier.findMany({ orderBy: { startMin: "asc" } });
+});
+
 /** Busy intervals for a single court overlapping [from, to). Reaps expired holds first. */
 export async function getBusyIntervals(courtId: number, from: Date, to: Date): Promise<BusyInterval[]> {
   await reapExpiredBookings();
@@ -52,4 +57,20 @@ export async function getBusyIntervals(courtId: number, from: Date, to: Date): P
     select: { startUtc: true, endUtc: true },
   });
   return rows.map((r) => ({ start: r.startUtc, end: r.endUtc }));
+}
+
+/** Same as `getBusyIntervals`, but tags each interval as confirmed or still-pending so
+ *  callers (the availability API) can color slots instead of just marking them taken. */
+export async function getBusyIntervalsWithStatus(courtId: number, from: Date, to: Date): Promise<StatusInterval[]> {
+  await reapExpiredBookings();
+  const rows = await prisma.booking.findMany({
+    where: {
+      courtId,
+      status: { in: [...ACTIVE_STATUSES] },
+      endUtc: { gt: from },
+      startUtc: { lt: to },
+    },
+    select: { startUtc: true, endUtc: true, status: true },
+  });
+  return rows.map((r) => ({ start: r.startUtc, end: r.endUtc, confirmed: r.status === "confirmed" }));
 }

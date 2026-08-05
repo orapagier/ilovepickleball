@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
-import { getSettings, getBusinessHours, getBlackoutDateSet, getBusyIntervals } from "@/lib/booking-data";
+import {
+  getSettings,
+  getBusinessHours,
+  getBlackoutDateSet,
+  getBusyIntervalsWithStatus,
+  getPriceTiers,
+} from "@/lib/booking-data";
 import { buildAvailability, rangeUtcBounds } from "@/lib/scheduling";
 
 const MAX_BOOKING_HOURS = 6;
@@ -23,11 +29,12 @@ export async function GET(req: NextRequest) {
   const settings = await getSettings();
   const hours = await getBusinessHours();
   const blackouts = await getBlackoutDateSet();
+  const tiers = await getPriceTiers();
 
   const nextDate = DateTime.fromISO(date, { zone: settings.timezone }).plus({ days: 1 }).toFormat("yyyy-LL-dd");
   const { start } = rangeUtcBounds(settings.timezone, date, date);
   const { end } = rangeUtcBounds(settings.timezone, nextDate, nextDate);
-  const busy = await getBusyIntervals(courtId, start, end);
+  const busy = await getBusyIntervalsWithStatus(courtId, start, end);
 
   const days = buildAvailability({
     tz: settings.timezone,
@@ -47,6 +54,7 @@ export async function GET(req: NextRequest) {
       startMs: s.start.getTime(),
       label: s.label,
       available: s.available,
+      status: s.status,
     })),
   );
 
@@ -57,5 +65,6 @@ export async function GET(req: NextRequest) {
     currency: settings.currency,
     slotDurationMin: settings.slotDurationMin,
     maxHours: MAX_BOOKING_HOURS,
+    tiers,
   });
 }

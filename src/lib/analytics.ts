@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { prisma } from "@/lib/prisma";
-import { getSettings, getBusinessHours, getBlackoutDateSet, getActiveCourts } from "@/lib/booking-data";
+import { getSettings, getBusinessHours, getBlackoutDateSet, getActiveCourts, getPriceTiers } from "@/lib/booking-data";
+import { computeBookingPriceCents } from "@/lib/pricing";
 
 export type DashboardStats = {
   periodLabel: string;
@@ -21,14 +22,15 @@ function pctChange(curr: number, prev: number): number {
 
 /** Confirmed-bookings revenue, booking counts, and court utilization for the
  *  current calendar month (business-local), compared against the prior month.
- *  Prices are computed with today's `priceCentsPerHour`, same approximation
- *  the rest of the admin UI already makes — bookings don't snapshot price. */
+ *  Prices are computed with today's rate tiers, same approximation the rest
+ *  of the admin UI already makes — bookings don't snapshot price. */
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const [settings, hours, blackouts, courts] = await Promise.all([
+  const [settings, hours, blackouts, courts, tiers] = await Promise.all([
     getSettings(),
     getBusinessHours(),
     getBlackoutDateSet(),
     getActiveCourts(),
+    getPriceTiers(),
   ]);
   const tz = settings.timezone;
   const now = DateTime.now().setZone(tz);
@@ -51,18 +53,28 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     }),
     prisma.booking.findMany({
       where: { status: "confirmed", startUtc: { gte: prevMonthStart.toJSDate(), lt: monthStart.toJSDate() } },
-      select: { hours: true },
+      select: { hours: true, startUtc: true },
     }),
   ]);
 
-  const netRevenueCents = periodRows.reduce((sum, b) => sum + b.hours * settings.priceCentsPerHour, 0);
-  const prevNetRevenueCents = prevPeriodRows.reduce((sum, b) => sum + b.hours * settings.priceCentsPerHour, 0);
+  const priceOf = (b: { startUtc: Date; hours: number }) =>
+    computeBookingPriceCents({
+      startMs: b.startUtc.getTime(),
+      hours: b.hours,
+      slotDurationMin: settings.slotDurationMin,
+      tz,
+      tiers,
+      fallbackCentsPerHour: settings.priceCentsPerHour,
+    });
+
+  const netRevenueCents = periodRows.reduce((sum, b) => sum + priceOf(b), 0);
+  const prevNetRevenueCents = prevPeriodRows.reduce((sum, b) => sum + priceOf(b), 0);
   const bookedHours = periodRows.reduce((sum, b) => sum + b.hours, 0);
 
   const byDay = new Map<number, number>();
   for (const b of periodRows) {
     const day = DateTime.fromJSDate(b.startUtc).setZone(tz).day;
-    byDay.set(day, (byDay.get(day) ?? 0) + b.hours * settings.priceCentsPerHour);
+    byDay.set(day, (byDay.get(day) ?? 0) + priceOf(b));
   }
   const dailyRevenue = Array.from({ length: daysInMonth }, (_, i) => ({
     day: i + 1,

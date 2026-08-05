@@ -10,6 +10,15 @@ export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }
 
+/** Minutes-from-midnight (0..1440) to a label like "8 AM" or "1:30 PM". */
+export function formatMinuteOfDay(min: number): string {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  const period = h < 12 ? "AM" : "PM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 /** `iso` is a plain YYYY-MM-DD business-local calendar date; render its
  * components as-is, with no timezone conversion (parse and format both as
  * UTC so the date never shifts by a day). */

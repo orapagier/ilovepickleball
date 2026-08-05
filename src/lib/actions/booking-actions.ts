@@ -4,12 +4,23 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth-helpers";
-import { getSettings, getBusinessHours, getBlackoutDateSet, getBusyIntervals, ACTIVE_STATUSES } from "@/lib/booking-data";
+import {
+  getSettings,
+  getBusinessHours,
+  getBlackoutDateSet,
+  getBusyIntervals,
+  getPriceTiers,
+  ACTIVE_STATUSES,
+} from "@/lib/booking-data";
 import { isValidBookingRange, isFree } from "@/lib/scheduling";
+import { computeBookingPriceCents } from "@/lib/pricing";
 
 export type ActionState = { error?: string; ok?: boolean };
 
 const MAX_BOOKING_HOURS = 6;
+/** Bookings this long or longer need a phone call to arrange payment instead of an instant reference-number reserve. */
+const CALL_REQUIRED_HOURS = 4;
+const REFERENCE_PAY_METHODS = ["gcash", "bdo", "qrph"] as const;
 
 export async function createBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
@@ -52,7 +63,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
   }
 
   const expiresAt = new Date(now.getTime() + settings.holdMinutes * 60_000);
-  const isMultiHour = hours >= 2;
+  const requiresCall = hours >= CALL_REQUIRED_HOURS;
 
   const booking = await prisma.booking.create({
     data: {
@@ -61,7 +72,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
       startUtc: range.start,
       endUtc: range.end,
       hours,
-      status: isMultiHour ? "awaiting_call" : "pending_payment",
+      status: requiresCall ? "awaiting_call" : "pending_payment",
       expiresAt,
       customerNote: note,
     },
@@ -94,7 +105,12 @@ export async function submitPayment(_prev: ActionState, formData: FormData): Pro
 
   const bookingId = String(formData.get("bookingId") ?? "");
   const reference = String(formData.get("referenceNumber") ?? "").trim();
-  if (!reference) return { error: "Enter the GCash reference number." };
+  const payMethodRaw = String(formData.get("payMethod") ?? "");
+  if (!reference) return { error: "Enter the reference number." };
+  if (!REFERENCE_PAY_METHODS.includes(payMethodRaw as (typeof REFERENCE_PAY_METHODS)[number])) {
+    return { error: "Choose a payment method." };
+  }
+  const payMethod = payMethodRaw as (typeof REFERENCE_PAY_METHODS)[number];
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking || booking.customerId !== user.id) return { error: "Booking not found." };
@@ -107,12 +123,21 @@ export async function submitPayment(_prev: ActionState, formData: FormData): Pro
     return { error: "This booking can no longer accept a reference number." };
   }
 
-  const settings = await getSettings();
+  const [settings, tiers] = await Promise.all([getSettings(), getPriceTiers()]);
+  const amountCents = computeBookingPriceCents({
+    startMs: booking.startUtc.getTime(),
+    hours: booking.hours,
+    slotDurationMin: settings.slotDurationMin,
+    tz: settings.timezone,
+    tiers,
+    fallbackCentsPerHour: settings.priceCentsPerHour,
+  });
+
   await prisma.payment.upsert({
     where: { bookingId: booking.id },
     update: {
       referenceNumber: reference,
-      amountCents: settings.priceCentsPerHour * booking.hours,
+      amountCents,
       status: "submitted",
       submittedAt: new Date(),
       verifiedById: null,
@@ -122,13 +147,13 @@ export async function submitPayment(_prev: ActionState, formData: FormData): Pro
     create: {
       bookingId: booking.id,
       referenceNumber: reference,
-      amountCents: settings.priceCentsPerHour * booking.hours,
+      amountCents,
       status: "submitted",
     },
   });
   await prisma.booking.update({
     where: { id: booking.id },
-    data: { status: "awaiting_confirmation" },
+    data: { status: "awaiting_confirmation", payMethod },
   });
 
   revalidatePath(`/book/${booking.id}`);

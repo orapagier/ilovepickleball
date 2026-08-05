@@ -2,9 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth-helpers";
-import { getSettings } from "@/lib/booking-data";
+import { getSettings, getPriceTiers } from "@/lib/booking-data";
 import { reapExpiredBookings } from "@/lib/expiry";
 import { formatMoney } from "@/lib/format";
+import { computeBookingPriceCents } from "@/lib/pricing";
 import { CancelButton } from "@/components/booking/cancel-button";
 import { cn } from "@/lib/utils";
 
@@ -25,13 +26,14 @@ export default async function MyBookingsPage() {
 
   await reapExpiredBookings();
 
-  const [bookings, settings] = await Promise.all([
+  const [bookings, settings, tiers] = await Promise.all([
     prisma.booking.findMany({
       where: { customerId: user.id },
       include: { court: true },
       orderBy: { startUtc: "desc" },
     }),
     getSettings(),
+    getPriceTiers(),
   ]);
 
   return (
@@ -61,6 +63,14 @@ export default async function MyBookingsPage() {
               minute: "2-digit",
               timeZone: settings.timezone,
             }).format(b.startUtc);
+            const totalCents = computeBookingPriceCents({
+              startMs: b.startUtc.getTime(),
+              hours: b.hours,
+              slotDurationMin: settings.slotDurationMin,
+              tz: settings.timezone,
+              tiers,
+              fallbackCentsPerHour: settings.priceCentsPerHour,
+            });
 
             return (
               <li key={b.id} className="surface-card flex flex-wrap items-center gap-4 p-5">
@@ -69,7 +79,7 @@ export default async function MyBookingsPage() {
                     {b.court.name} — {dateLabel}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {b.hours}h · {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)}
+                    {b.hours}h · {formatMoney(totalCents, settings.currency)}
                   </p>
                 </div>
 

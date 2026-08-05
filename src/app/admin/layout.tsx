@@ -3,8 +3,10 @@ import { requireAdmin } from "@/lib/auth-helpers";
 
 const NAV = [
   { href: "/admin", label: "Dashboard" },
+  { href: "/admin/queue", label: "Pending actions" },
   { href: "/admin/bookings", label: "All bookings" },
   { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/pricing", label: "Pricing" },
   { href: "/admin/courts", label: "Courts" },
   { href: "/admin/hours", label: "Hours" },
   { href: "/admin/blackouts", label: "Blackout dates" },

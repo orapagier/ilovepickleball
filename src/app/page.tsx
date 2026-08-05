@@ -1,24 +1,27 @@
 import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { CalendarCheck, Clock, Mail, MapPin, Phone, Trophy, User } from "lucide-react";
-import { getSettings, getActiveCourts, getBusinessHours } from "@/lib/booking-data";
+import { CalendarCheck, Clock, Mail, MapPin, Phone, Trophy, User, Wallet } from "lucide-react";
+import { getSettings, getActiveCourts, getBusinessHours, getPriceTiers } from "@/lib/booking-data";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { summarizeHours, closedWindowLabel } from "@/lib/hours-summary";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatMinuteOfDay } from "@/lib/format";
+import { minTierRateCents } from "@/lib/pricing";
 
 const HERO_IMAGE_PATH = path.join(process.cwd(), "public", "hero-court.jpg");
 
 export default async function Home() {
-  const [settings, courts, hours, user] = await Promise.all([
+  const [settings, courts, hours, tiers, user] = await Promise.all([
     getSettings(),
     getActiveCourts(),
     getBusinessHours(),
+    getPriceTiers(),
     getSessionUser(),
   ]);
   const hourLines = summarizeHours(hours);
   const closedLabel = closedWindowLabel(hours);
   const hasHeroImage = fs.existsSync(HERO_IMAGE_PATH);
+  const startingRateCents = minTierRateCents(tiers, settings.priceCentsPerHour);
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -59,9 +62,9 @@ export default async function Home() {
 
           <div className="rounded-2xl border border-navy-foreground/15 bg-navy-foreground/10 p-6 backdrop-blur">
             <p className="text-xs font-semibold uppercase tracking-widest text-navy-foreground/70">Court rate</p>
-            <p className="mt-2 text-5xl font-bold">
-              {formatMoney(settings.priceCentsPerHour, settings.currency)}
-              <span className="text-lg font-medium text-navy-foreground/70"> / hour</span>
+            <p className="mt-2 text-4xl font-bold md:text-5xl">
+              Starts at {formatMoney(startingRateCents, settings.currency)}
+              <span className="text-lg font-medium text-navy-foreground/70"> /Hour</span>
             </p>
             <dl className="mt-6 space-y-3 text-sm">
               <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
@@ -82,7 +85,7 @@ export default async function Home() {
       </section>
 
       <section id="details" className="mx-auto max-w-6xl px-4 py-16">
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <article className="surface-card p-6">
             <Clock className="size-5 text-primary" />
             <h2 className="mt-4 text-lg font-semibold">Opening hours</h2>
@@ -91,6 +94,23 @@ export default async function Home() {
                 hourLines.map((line) => <li key={line}>{line}</li>)
               ) : (
                 <li>Hours not set yet.</li>
+              )}
+            </ul>
+          </article>
+
+          <article className="surface-card p-6">
+            <Wallet className="size-5 text-primary" />
+            <h2 className="mt-4 text-lg font-semibold">Court rates</h2>
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+              {tiers.length > 0 ? (
+                tiers.map((t) => (
+                  <li key={t.startMin}>
+                    {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
+                    {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
+                  </li>
+                ))
+              ) : (
+                <li>{formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate</li>
               )}
             </ul>
           </article>

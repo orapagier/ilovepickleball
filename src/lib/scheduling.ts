@@ -2,7 +2,10 @@ import { DateTime } from "luxon";
 
 export type BusinessHourRow = { weekday: number; openMin: number; closeMin: number };
 export type BusyInterval = { start: Date; end: Date };
-export type DaySlot = { start: Date; end: Date; label: string; available: boolean };
+/** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart from one still awaiting payment/call/verification. */
+export type StatusInterval = { start: Date; end: Date; confirmed: boolean };
+export type SlotStatus = "available" | "confirmed" | "pending" | "past";
+export type DaySlot = { start: Date; end: Date; label: string; available: boolean; status: SlotStatus };
 export type DayAvailability = { date: string; slots: DaySlot[] };
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
@@ -11,6 +14,29 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
 
 export function isFree(start: Date, end: Date, busy: BusyInterval[]): boolean {
   return !busy.some((b) => overlaps(start, end, b.start, b.end));
+}
+
+/**
+ * Classifies a single slot for display: elapsed time always reads as "past"
+ * (even if it was once confirmed — history isn't bookable or noteworthy),
+ * otherwise a confirmed booking wins over a merely-pending one, and a slot
+ * too soon to book under the lead-time policy is bucketed with "past" too
+ * since it's equally non-interactive right now.
+ */
+function slotStatus(params: {
+  startDt: DateTime;
+  start: Date;
+  end: Date;
+  busy: StatusInterval[];
+  leadCutoff: DateTime;
+  nowDt: DateTime;
+}): SlotStatus {
+  const { startDt, start, end, busy, leadCutoff, nowDt } = params;
+  if (startDt < nowDt) return "past";
+  if (busy.some((b) => b.confirmed && overlaps(start, end, b.start, b.end))) return "confirmed";
+  if (busy.some((b) => !b.confirmed && overlaps(start, end, b.start, b.end))) return "pending";
+  if (startDt < leadCutoff) return "past";
+  return "available";
 }
 
 /** Luxon weekday is 1=Mon..7=Sun; our model is 0=Sun..6=Sat. */
@@ -36,13 +62,14 @@ export function buildAvailability(params: {
   leadMinutes: number;
   hours: BusinessHourRow[];
   blackouts: Set<string>; // YYYY-MM-DD
-  busy: BusyInterval[];
+  busy: StatusInterval[];
   fromISO: string;
   toISO: string;
   now: Date;
 }): DayAvailability[] {
   const { tz, slotDurationMin, leadMinutes, hours, blackouts, busy, fromISO, toISO, now } = params;
   const leadCutoff = DateTime.fromJSDate(now, { zone: tz }).plus({ minutes: leadMinutes });
+  const nowDt = DateTime.fromJSDate(now, { zone: tz });
 
   const out: DayAvailability[] = [];
   let day = DateTime.fromISO(fromISO, { zone: tz }).startOf("day");
@@ -64,11 +91,13 @@ export function buildAvailability(params: {
           if (startDt.isValid) {
             const start = startDt.toJSDate();
             const end = new Date(start.getTime() + slotDurationMin * 60_000);
+            const status = slotStatus({ startDt, start, end, busy, leadCutoff, nowDt });
             slots.push({
               start,
               end,
               label: startDt.toFormat("HH:mm"),
-              available: startDt >= leadCutoff && isFree(start, end, busy),
+              available: status === "available",
+              status,
             });
           }
           minute += slotDurationMin;

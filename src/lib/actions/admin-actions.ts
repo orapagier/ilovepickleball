@@ -33,7 +33,8 @@ export async function verifyBooking(bookingId: string): Promise<ActionState> {
   if (!booking || booking.status !== "awaiting_confirmation") {
     return { error: "Only bookings awaiting confirmation can be verified." };
   }
-  await prisma.booking.update({ where: { id: bookingId }, data: { status: "confirmed", payMethod: "gcash" } });
+  // payMethod was already recorded when the customer submitted their reference number.
+  await prisma.booking.update({ where: { id: bookingId }, data: { status: "confirmed" } });
   await prisma.payment.update({
     where: { bookingId },
     data: { status: "verified", verifiedAt: new Date(), verifiedById: admin.id },
@@ -178,6 +179,10 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
   const timezone = String(formData.get("timezone") ?? "Asia/Manila").trim();
   const gcashName = String(formData.get("gcashName") ?? "").trim();
   const gcashNumber = String(formData.get("gcashNumber") ?? "").trim();
+  const bdoAccountName = String(formData.get("bdoAccountName") ?? "").trim();
+  const bdoAccountNumber = String(formData.get("bdoAccountNumber") ?? "").trim();
+  const qrphAccountName = String(formData.get("qrphAccountName") ?? "").trim();
+  const qrphAccountNumber = String(formData.get("qrphAccountNumber") ?? "").trim();
   const holdMinutes = Number(formData.get("holdMinutes"));
   const leadMinutes = Number(formData.get("leadMinutes"));
 
@@ -204,6 +209,10 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
       timezone,
       gcashName,
       gcashNumber,
+      bdoAccountName,
+      bdoAccountNumber,
+      qrphAccountName,
+      qrphAccountNumber,
       holdMinutes: Math.round(holdMinutes),
       leadMinutes: Math.round(leadMinutes),
     },
@@ -284,6 +293,35 @@ export async function updateBusinessHours(_prev: ActionState, formData: FormData
     prisma.businessHour.createMany({ data: rows.filter((r) => r.closeMin > r.openMin) }),
   ]);
   revalidatePath("/admin/hours");
+  revalidatePath("/");
+  revalidatePath("/book");
+  return { ok: true };
+}
+
+// ---- Price tiers ------------------------------------------------------------
+
+export async function updatePriceTiers(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireAdminOrThrow();
+
+  const count = Number(formData.get("tierCount") ?? 0);
+  const rows: { startMin: number; endMin: number; priceCentsPerHour: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const startMin = timeToMinutes(String(formData.get(`start-${i}`) ?? "00:00"));
+    const endRaw = timeToMinutes(String(formData.get(`end-${i}`) ?? "00:00"));
+    // Same "00:00 close means midnight" convention as business hours.
+    const endMin = endRaw === 0 ? 1440 : endRaw;
+    const priceInput = Number(formData.get(`price-${i}`));
+    if (!Number.isFinite(priceInput) || priceInput <= 0) {
+      return { error: `Enter a valid rate for tier ${i + 1}.` };
+    }
+    if (startMin < 0 || startMin > 1440 || endMin < 0 || endMin > 1440 || startMin >= endMin) {
+      return { error: `Tier ${i + 1}: start time must be before end time.` };
+    }
+    rows.push({ startMin, endMin, priceCentsPerHour: Math.round(priceInput * 100) });
+  }
+
+  await prisma.$transaction([prisma.priceTier.deleteMany({}), prisma.priceTier.createMany({ data: rows })]);
+  revalidatePath("/admin/pricing");
   revalidatePath("/");
   revalidatePath("/book");
   return { ok: true };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export function ActionButton({
   action,
@@ -17,25 +18,38 @@ export function ActionButton({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  function run() {
+    setError(null);
+    startTransition(async () => {
+      const res = await action();
+      if (res?.error) setError(res.error);
+    });
+  }
 
   return (
     <div>
       <button
         type="button"
         disabled={pending}
-        onClick={() => {
-          if (confirmMessage && !confirm(confirmMessage)) return;
-          setError(null);
-          startTransition(async () => {
-            const res = await action();
-            if (res?.error) setError(res.error);
-          });
-        }}
+        onClick={() => (confirmMessage ? setConfirming(true) : run())}
         className={className}
       >
         {pending ? (pendingLabel ?? "Working…") : children}
       </button>
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      {confirmMessage && (
+        <ConfirmDialog
+          open={confirming}
+          message={confirmMessage}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            run();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -14,6 +14,10 @@ type Settings = {
   timezone: string;
   gcashName: string;
   gcashNumber: string;
+  bdoAccountName: string;
+  bdoAccountNumber: string;
+  qrphAccountName: string;
+  qrphAccountNumber: string;
   holdMinutes: number;
   leadMinutes: number;
 };
@@ -81,7 +85,10 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       </section>
 
       <section className="surface-card p-6">
-        <h2 className="text-lg font-semibold">Payment &amp; hold policy</h2>
+        <h2 className="text-lg font-semibold">Payment accounts</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Shown to customers when they pick a payment method at checkout.
+        </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field label="GCash account name">
             <input name="gcashName" defaultValue={settings.gcashName} className={inputClass} />
@@ -89,6 +96,24 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           <Field label="GCash number">
             <input name="gcashNumber" defaultValue={settings.gcashNumber} className={inputClass} />
           </Field>
+          <Field label="BDO account name">
+            <input name="bdoAccountName" defaultValue={settings.bdoAccountName} className={inputClass} />
+          </Field>
+          <Field label="BDO account number">
+            <input name="bdoAccountNumber" defaultValue={settings.bdoAccountNumber} className={inputClass} />
+          </Field>
+          <Field label="QRPh / InstaPay account name">
+            <input name="qrphAccountName" defaultValue={settings.qrphAccountName} className={inputClass} />
+          </Field>
+          <Field label="QRPh / InstaPay account number">
+            <input name="qrphAccountNumber" defaultValue={settings.qrphAccountNumber} className={inputClass} />
+          </Field>
+        </div>
+      </section>
+
+      <section className="surface-card p-6">
+        <h2 className="text-lg font-semibold">Hold policy</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field label="Hold time before auto-cancel (minutes)">
             <input
               name="holdMinutes"

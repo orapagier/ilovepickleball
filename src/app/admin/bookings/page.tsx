@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { prisma } from "@/lib/prisma";
-import { getSettings, getActiveCourts } from "@/lib/booking-data";
+import { getSettings, getActiveCourts, getPriceTiers } from "@/lib/booking-data";
 import { formatMoney } from "@/lib/format";
+import { computeBookingPriceCents } from "@/lib/pricing";
+import { PAY_METHOD_LABELS } from "@/lib/pay-method";
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/action-button";
 import { RescheduleControl } from "@/components/admin/reschedule-control";
@@ -27,7 +29,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
   const searchParams = await props.searchParams;
   const status = typeof searchParams.status === "string" ? searchParams.status : "all";
 
-  const [bookings, settings, courts] = await Promise.all([
+  const [bookings, settings, courts, tiers] = await Promise.all([
     prisma.booking.findMany({
       where: status === "all" ? {} : { status: status as never },
       include: { court: true, customer: true },
@@ -36,7 +38,11 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
     }),
     getSettings(),
     getActiveCourts(),
+    getPriceTiers(),
   ]);
+  // Server Component: runs once per request, not subject to client re-render purity concerns.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   const todayISO = DateTime.now().setZone(settings.timezone).toFormat("yyyy-LL-dd");
 
   return (
@@ -73,7 +79,15 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
           const editable = EDITABLE_STATUSES.includes(b.status);
           const deletable =
             DELETABLE_STATUSES.includes(b.status) &&
-            Date.now() - b.updatedAt.getTime() > DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+            nowMs - b.updatedAt.getTime() > DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+          const totalCents = computeBookingPriceCents({
+            startMs: b.startUtc.getTime(),
+            hours: b.hours,
+            slotDurationMin: settings.slotDurationMin,
+            tz: settings.timezone,
+            tiers,
+            fallbackCentsPerHour: settings.priceCentsPerHour,
+          });
           return (
             <li key={b.id} className="surface-card flex flex-wrap items-start justify-between gap-3 p-3">
               <div>
@@ -81,10 +95,9 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                   {b.court.name} — {dateLabel} ({b.hours}h)
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {b.customer.name || b.customer.email} ·{" "}
-                  {formatMoney(settings.priceCentsPerHour * b.hours, settings.currency)} ·{" "}
+                  {b.customer.name || b.customer.email} · {formatMoney(totalCents, settings.currency)} ·{" "}
                   {STATUS_LABELS[b.status] ?? b.status}
-                  {b.payMethod ? ` · ${b.payMethod}` : ""}
+                  {b.payMethod ? ` · ${PAY_METHOD_LABELS[b.payMethod] ?? b.payMethod}` : ""}
                 </p>
                 {editable && (
                   <RescheduleControl

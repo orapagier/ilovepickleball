@@ -25,6 +25,8 @@ enum BookingStatus {
 
 enum PayMethod {
   gcash
+  bdo
+  qrph
   cash_onsite
   arranged
 }
@@ -70,6 +72,10 @@ model Setting {
   timezone          String @default("Asia/Manila")
   gcashName         String @default("")
   gcashNumber       String @default("")
+  bdoAccountName    String @default("")
+  bdoAccountNumber  String @default("")
+  qrphAccountName   String @default("")
+  qrphAccountNumber String @default("")
   holdMinutes       Int    @default(30)
   leadMinutes       Int    @default(60)
   slotDurationMin   Int    @default(60)
@@ -83,6 +89,18 @@ model BusinessHour {
   closeMin Int
 
   @@index([weekday])
+}
+
+/// Time-of-day rate bands (business-local minutes from midnight, 0..1440,
+/// endMin exclusive). A booking hour's rate is whichever tier its start
+/// falls in; hours outside all tiers fall back to Setting.priceCentsPerHour.
+model PriceTier {
+  id                Int @id @default(autoincrement())
+  startMin          Int
+  endMin            Int
+  priceCentsPerHour Int
+
+  @@index([startMin])
 }
 
 model BlackoutDate {
