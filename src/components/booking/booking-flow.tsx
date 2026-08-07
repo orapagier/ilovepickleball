@@ -7,6 +7,7 @@ import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
 import { formatMoney, formatDateLabel } from "@/lib/format";
 import { computeBookingPriceCents, type PriceTier } from "@/lib/pricing";
+import { clampOffset, maxStripOffset, offsetForSelection } from "@/lib/date-strip";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
@@ -30,14 +31,6 @@ function daysBetweenISO(fromISO: string, toISO: string): number {
   const a = new Date(`${fromISO}T00:00:00Z`).getTime();
   const b = new Date(`${toISO}T00:00:00Z`).getTime();
   return Math.round((b - a) / 86_400_000);
-}
-
-/** Window start that stays in range and always keeps the selected day on screen. */
-function clampWindow(offset: number, selectedDiff: number, size: number, maxOffset: number): number {
-  const start = Math.min(Math.max(0, offset), maxOffset);
-  if (selectedDiff < start) return Math.max(0, selectedDiff);
-  if (selectedDiff > start + size - 1) return Math.min(maxOffset, selectedDiff - size + 1);
-  return start;
 }
 
 const SLOT_STATUS_LABEL: Record<SlotStatus, string> = {
@@ -96,10 +89,9 @@ export function BookingFlow({
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
 
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
-  const maxStripOffset = Math.max(0, totalAdvanceDays - stripDays + 1);
-  const selectedDiff = daysBetweenISO(todayISO, date);
-  /** Derived so the window survives a breakpoint change or a jump from the date input. */
-  const stripStart = clampWindow(stripOffset, selectedDiff, stripDays, maxStripOffset);
+  const maxOffset = maxStripOffset(totalAdvanceDays, stripDays);
+  /** Clamped at render so a breakpoint change can't strand the window out of range. */
+  const stripStart = clampOffset(stripOffset, maxOffset);
   const stripDates = Array.from({ length: stripDays }, (_, i) => addDaysISO(todayISO, stripStart + i)).filter(
     (d) => daysBetweenISO(todayISO, d) <= totalAdvanceDays,
   );
@@ -118,7 +110,7 @@ export function BookingFlow({
     setSelectedStartMs(null);
     setLoading(true);
     const diff = daysBetweenISO(todayISO, d);
-    setStripOffset(Math.min(Math.max(0, diff - Math.floor(stripDays / 2)), maxStripOffset));
+    setStripOffset((o) => offsetForSelection(diff, o, stripDays, maxOffset));
   }
 
   useEffect(() => {
@@ -182,14 +174,28 @@ export function BookingFlow({
       )}
 
       <div>
-        <label className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          <CalendarDays className="size-4" /> Choose a date
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label
+            htmlFor="date-jump"
+            className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            <CalendarDays className="size-4" /> Choose a date
+          </label>
+          <input
+            id="date-jump"
+            type="date"
+            min={todayISO}
+            max={maxISO}
+            value={date}
+            onChange={(e) => e.target.value && selectDate(e.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+          />
+        </div>
 
         <div className="mt-2 flex items-stretch gap-1 rounded-xl border border-border bg-card p-1.5">
           <button
             type="button"
-            onClick={() => setStripOffset(Math.max(0, stripStart - 1))}
+            onClick={() => setStripOffset(stripStart - 1)}
             disabled={stripStart <= 0}
             aria-label="Previous date"
             className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
@@ -232,8 +238,8 @@ export function BookingFlow({
 
           <button
             type="button"
-            onClick={() => setStripOffset(Math.min(maxStripOffset, stripStart + 1))}
-            disabled={stripStart >= maxStripOffset}
+            onClick={() => setStripOffset(stripStart + 1)}
+            disabled={stripStart >= maxOffset}
             aria-label="Next date"
             className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
           >
@@ -241,19 +247,9 @@ export function BookingFlow({
           </button>
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            type="date"
-            min={todayISO}
-            max={maxISO}
-            value={date}
-            onChange={(e) => selectDate(e.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
-          />
-          <p className="text-xs text-muted-foreground">
-            {formatDateLabel(date)} · book up to {totalAdvanceDays} days ahead
-          </p>
-        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {formatDateLabel(date)} · book up to {totalAdvanceDays} days ahead
+        </p>
       </div>
 
       <div>
