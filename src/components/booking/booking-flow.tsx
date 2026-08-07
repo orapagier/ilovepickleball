@@ -10,7 +10,9 @@ import { computeBookingPriceCents, type PriceTier } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
-const STRIP_VISIBLE_DAYS = 7;
+/** Date strip fits one line at every width — fewer cells on phones, more on desktop. */
+const STRIP_DAYS_MOBILE = 5;
+const STRIP_DAYS_DESKTOP = 7;
 
 type Court = { id: number; name: string };
 type SlotStatus = "available" | "confirmed" | "pending" | "past";
@@ -30,12 +32,27 @@ function daysBetweenISO(fromISO: string, toISO: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
+/** Window start that stays in range and always keeps the selected day on screen. */
+function clampWindow(offset: number, selectedDiff: number, size: number, maxOffset: number): number {
+  const start = Math.min(Math.max(0, offset), maxOffset);
+  if (selectedDiff < start) return Math.max(0, selectedDiff);
+  if (selectedDiff > start + size - 1) return Math.min(maxOffset, selectedDiff - size + 1);
+  return start;
+}
+
+const SLOT_STATUS_LABEL: Record<SlotStatus, string> = {
+  available: "Open",
+  confirmed: "Booked",
+  pending: "Pending Confirmation",
+  past: "Past",
+};
+
 const LEGEND: { status: SlotStatus | "selected"; label: string; className: string }[] = [
-  { status: "available", label: "Open", className: "border border-border bg-card" },
+  { status: "available", label: SLOT_STATUS_LABEL.available, className: "border border-border bg-card" },
   { status: "selected", label: "Selected", className: "bg-primary" },
-  { status: "confirmed", label: "Booked", className: "bg-success/70" },
-  { status: "pending", label: "Pending", className: "bg-warning/70" },
-  { status: "past", label: "Past", className: "bg-muted" },
+  { status: "confirmed", label: SLOT_STATUS_LABEL.confirmed, className: "bg-success/70" },
+  { status: "pending", label: SLOT_STATUS_LABEL.pending, className: "bg-warning/70" },
+  { status: "past", label: SLOT_STATUS_LABEL.past, className: "bg-muted" },
 ];
 
 export function BookingFlow({
@@ -67,6 +84,7 @@ export function BookingFlow({
 }) {
   const [date, setDate] = useState(todayISO);
   const [stripOffset, setStripOffset] = useState(0);
+  const [stripDays, setStripDays] = useState(STRIP_DAYS_DESKTOP);
   const [slotsByCourt, setSlotsByCourt] = useState<Record<number, Slot[]>>({});
   const [loading, setLoading] = useState(true);
   const [maxHours, setMaxHours] = useState(6);
@@ -78,10 +96,21 @@ export function BookingFlow({
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
 
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
-  const maxStripOffset = Math.max(0, totalAdvanceDays - STRIP_VISIBLE_DAYS + 1);
-  const stripDates = Array.from({ length: STRIP_VISIBLE_DAYS }, (_, i) => addDaysISO(todayISO, stripOffset + i)).filter(
+  const maxStripOffset = Math.max(0, totalAdvanceDays - stripDays + 1);
+  const selectedDiff = daysBetweenISO(todayISO, date);
+  /** Derived so the window survives a breakpoint change or a jump from the date input. */
+  const stripStart = clampWindow(stripOffset, selectedDiff, stripDays, maxStripOffset);
+  const stripDates = Array.from({ length: stripDays }, (_, i) => addDaysISO(todayISO, stripStart + i)).filter(
     (d) => daysBetweenISO(todayISO, d) <= totalAdvanceDays,
   );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const apply = () => setStripDays(mq.matches ? STRIP_DAYS_DESKTOP : STRIP_DAYS_MOBILE);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   function selectDate(d: string) {
     setDate(d);
@@ -89,7 +118,7 @@ export function BookingFlow({
     setSelectedStartMs(null);
     setLoading(true);
     const diff = daysBetweenISO(todayISO, d);
-    setStripOffset(Math.min(Math.max(0, diff - Math.floor(STRIP_VISIBLE_DAYS / 2)), maxStripOffset));
+    setStripOffset(Math.min(Math.max(0, diff - Math.floor(stripDays / 2)), maxStripOffset));
   }
 
   useEffect(() => {
@@ -157,38 +186,45 @@ export function BookingFlow({
           <CalendarDays className="size-4" /> Choose a date
         </label>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex items-stretch gap-1 rounded-xl border border-border bg-card p-1.5">
           <button
             type="button"
-            onClick={() => setStripOffset((o) => Math.max(0, o - STRIP_VISIBLE_DAYS))}
-            disabled={stripOffset <= 0}
-            aria-label="Earlier dates"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => setStripOffset(Math.max(0, stripStart - 1))}
+            disabled={stripStart <= 0}
+            aria-label="Previous date"
+            className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
           >
             <ChevronLeft className="size-4" />
           </button>
 
-          <div className="flex flex-1 gap-2 overflow-x-auto">
+          <div className="flex flex-1 gap-1">
             {stripDates.map((d) => {
               const dt = new Date(`${d}T00:00:00Z`);
               const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(dt);
               const day = new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: "UTC" }).format(dt);
+              const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(dt);
               const selected = d === date;
               return (
                 <button
                   key={d}
                   type="button"
                   onClick={() => selectDate(d)}
+                  aria-pressed={selected}
                   className={cn(
-                    "flex min-w-14 shrink-0 flex-col items-center rounded-lg border px-2 py-2 text-sm font-medium transition-colors",
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-card hover:border-primary hover:bg-accent",
+                    "flex min-w-0 flex-1 basis-0 flex-col items-center justify-center rounded-lg px-1 py-2 leading-tight transition-colors",
+                    selected ? "bg-primary text-primary-foreground" : "hover:bg-accent",
                   )}
                 >
-                  <span className="text-[11px] uppercase opacity-80">{weekday}</span>
-                  <span className="text-base font-semibold">{day}</span>
-                  {d === todayISO && <span className="text-[10px] uppercase opacity-80">Today</span>}
+                  <span className="text-[10px] font-medium uppercase tracking-wide opacity-70">{weekday}</span>
+                  <span className="text-base font-semibold sm:text-lg">{day}</span>
+                  <span
+                    className={cn(
+                      "text-[10px] uppercase tracking-wide",
+                      selected ? "opacity-80" : "text-muted-foreground",
+                    )}
+                  >
+                    {d === todayISO ? "Today" : month}
+                  </span>
                 </button>
               );
             })}
@@ -196,10 +232,10 @@ export function BookingFlow({
 
           <button
             type="button"
-            onClick={() => setStripOffset((o) => Math.min(maxStripOffset, o + STRIP_VISIBLE_DAYS))}
-            disabled={stripOffset >= maxStripOffset}
-            aria-label="Later dates"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => setStripOffset(Math.min(maxStripOffset, stripStart + 1))}
+            disabled={stripStart >= maxStripOffset}
+            aria-label="Next date"
+            className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
           >
             <ChevronRight className="size-4" />
           </button>
@@ -246,7 +282,7 @@ export function BookingFlow({
                   {courtSlots.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">Closed this day.</p>
                   ) : (
-                    <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
+                    <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
                       {courtSlots.map((s) => {
                         const selected = s.startMs === selectedStartMs && court.id === selectedCourtId;
                         return (
@@ -260,19 +296,27 @@ export function BookingFlow({
                               setHours(1);
                             }}
                             className={cn(
-                              "rounded-lg border px-2 py-2 text-sm font-medium transition-colors",
+                              "flex min-h-[3.75rem] flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-2.5 transition-colors",
                               selected
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : s.status === "confirmed"
-                                  ? "cursor-not-allowed border-transparent bg-success/15 text-success"
+                                  ? "cursor-not-allowed border-success/30 bg-success/15 text-success"
                                   : s.status === "pending"
-                                    ? "cursor-not-allowed border-transparent bg-warning/15 text-warning"
+                                    ? "cursor-not-allowed border-warning/30 bg-warning/15 text-warning"
                                     : s.status === "past"
                                       ? "cursor-not-allowed border-transparent bg-muted text-muted-foreground/60"
                                       : "border-border bg-card hover:border-primary hover:bg-accent",
                             )}
                           >
-                            {s.label}
+                            <span className="text-sm font-semibold sm:text-base">{s.label}</span>
+                            <span
+                              className={cn(
+                                "text-[10px] font-medium uppercase leading-tight tracking-wide",
+                                !selected && s.status === "available" && "text-muted-foreground",
+                              )}
+                            >
+                              {selected ? "Selected" : SLOT_STATUS_LABEL[s.status]}
+                            </span>
                           </button>
                         );
                       })}
