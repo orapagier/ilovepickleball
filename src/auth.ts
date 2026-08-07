@@ -22,20 +22,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/signin" },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       // `user` is only populated on the initial sign-in, which is exactly
       // when we want to (re-)assign the role from the ADMIN_EMAILS allowlist.
-      if (user?.id) {
-        const email = user.email ?? "";
+      if (user?.email) {
+        const email = user.email;
         const role: AppRole = isAdminEmail(email) ? "admin" : "customer";
+        // Auth.js deliberately hands this callback a *freshly generated UUID*
+        // as `user.id` on every sign-in — Google's stable identifier arrives as
+        // `account.providerAccountId`. Matching the row on `user.id` therefore
+        // never hit an existing user, fell through to `create`, and threw
+        // P2002 against the unique email for anyone signing in a second time.
+        // Match on email (the identity ADMIN_EMAILS is keyed on anyway) and
+        // keep the stored sub corrected as people sign back in.
+        // The last-resort UUID only matters for the unique column; the row is
+        // located by email either way.
+        const googleSub = account?.providerAccountId ?? user.id ?? crypto.randomUUID();
         // `name`/`phone` are user-owned once set via the registration form
         // (see /register) — don't let a repeat Google sign-in silently
         // overwrite what the customer entered there.
         const dbUser = await prisma.user.upsert({
-          where: { googleSub: user.id },
-          update: { email, image: user.image ?? "", role },
+          where: { email },
+          update: { googleSub, image: user.image ?? "", role },
           create: {
-            googleSub: user.id,
+            googleSub,
             email,
             name: user.name ?? "",
             image: user.image ?? "",
