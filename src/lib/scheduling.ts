@@ -11,6 +11,13 @@ export type SlotStatus = "available" | "confirmed" | "pending" | "past";
 export type DaySlot = { start: Date; end: Date; label: string; available: boolean; status: SlotStatus };
 export type DayAvailability = { date: string; slots: DaySlot[] };
 
+/** Slot times read as 12-hour with a meridiem, matching how every other page
+ * renders a booking time. The ":00" is dropped on the hour so the label stays
+ * short enough for a phone-width slot button ("6 PM", "6:30 PM"). */
+function formatSlotLabel(startDt: DateTime): string {
+  return startDt.minute === 0 ? startDt.toFormat("h a") : startDt.toFormat("h:mm a");
+}
+
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart < bEnd && bStart < aEnd;
 }
@@ -98,7 +105,7 @@ export function buildAvailability(params: {
             slots.push({
               start,
               end,
-              label: startDt.toFormat("HH:mm"),
+              label: formatSlotLabel(startDt),
               available: status === "available",
               status,
             });

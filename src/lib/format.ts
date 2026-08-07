@@ -19,6 +19,13 @@ export function formatMinuteOfDay(min: number): string {
   return m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+/** Same calendar-date rules as `formatDateLabel` but without the weekday, for
+ * tight phone-width rows where the full label would wrap. */
+export function formatDateLabelShort(iso: string): string {
+  const dt = new Date(`${iso}T00:00:00Z`);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(dt);
+}
+
 /** `iso` is a plain YYYY-MM-DD business-local calendar date; render its
  * components as-is, with no timezone conversion (parse and format both as
  * UTC so the date never shifts by a day). */

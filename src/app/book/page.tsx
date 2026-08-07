@@ -25,10 +25,10 @@ export default async function BookPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-end justify-between gap-4 px-4 pt-8">
-        <div>
-          <h1 className="text-3xl font-bold">Book a court</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-end justify-between gap-3 px-3 pt-6 sm:gap-4 sm:px-4 sm:pt-8">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold sm:text-3xl">Book a court</h1>
+          <p className="mt-1.5 text-xs text-muted-foreground sm:mt-2 sm:text-sm">
             Starts at {formatMoney(startingRateCents, settings.currency)} /hour · {courts.length} courts ·{" "}
             {settings.slotDurationMin}-min slots
           </p>
@@ -42,7 +42,7 @@ export default async function BookPage() {
           </Link>
         )}
       </div>
-      <div className="mx-auto flex w-full max-w-6xl items-start gap-2 px-4 pt-4 text-sm text-muted-foreground">
+      <div className="mx-auto flex w-full max-w-6xl items-start gap-2 px-3 pt-3 text-xs text-muted-foreground sm:px-4 sm:pt-4 sm:text-sm">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
         <p>
           Pay instantly via GCash, BDO, or QRPh/InstaPay — or for bookings of 4 hours or more, call us to arrange

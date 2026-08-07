@@ -5,7 +5,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
-import { formatMoney, formatDateLabel } from "@/lib/format";
+import { formatMoney, formatDateLabel, formatDateLabelShort } from "@/lib/format";
 import { computeBookingPriceCents, type PriceTier } from "@/lib/pricing";
 import { clampOffset, maxStripOffset, offsetForSelection } from "@/lib/date-strip";
 import { cn } from "@/lib/utils";
@@ -165,7 +165,7 @@ export function BookingFlow({
       : 0;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-3 py-6 sm:gap-6 sm:px-4 sm:py-8">
       {closedLabel && (
         <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -174,12 +174,12 @@ export function BookingFlow({
       )}
 
       <div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <label
             htmlFor="date-jump"
-            className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+            className="flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm"
           >
-            <CalendarDays className="size-4" /> Choose a date
+            <CalendarDays className="size-4 shrink-0" /> Choose a date
           </label>
           <input
             id="date-jump"
@@ -188,8 +188,19 @@ export function BookingFlow({
             max={maxISO}
             value={date}
             onChange={(e) => e.target.value && selectDate(e.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+            className="h-8 shrink-0 rounded-lg border border-input bg-background px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
           />
+          <p className="min-w-0 text-[11px] text-muted-foreground sm:text-xs">
+            {/* The date itself is already in the picker alongside this, so it is the
+                first thing dropped when the row runs out of phone width. */}
+            <span className="sm:hidden">
+              <span className="hidden min-[380px]:inline">{formatDateLabelShort(date)} · </span>
+              {totalAdvanceDays} days ahead
+            </span>
+            <span className="hidden sm:inline">
+              {formatDateLabel(date)} · book up to {totalAdvanceDays} days ahead
+            </span>
+          </p>
         </div>
 
         <div className="mt-2 flex items-stretch gap-1 rounded-xl border border-border bg-card p-1.5">
@@ -198,7 +209,7 @@ export function BookingFlow({
             onClick={() => setStripOffset(stripStart - 1)}
             disabled={stripStart <= 0}
             aria-label="Previous date"
-            className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
+            className="flex w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronLeft className="size-4" />
           </button>
@@ -241,26 +252,22 @@ export function BookingFlow({
             onClick={() => setStripOffset(stripStart + 1)}
             disabled={stripStart >= maxOffset}
             aria-label="Next date"
-            className="flex w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:w-9"
+            className="flex w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronRight className="size-4" />
           </button>
         </div>
-
-        <p className="mt-2 text-xs text-muted-foreground">
-          {formatDateLabel(date)} · book up to {totalAdvanceDays} days ahead
-        </p>
       </div>
 
       <div>
-        <label className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          <Clock className="size-4" /> Start time
+        <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:gap-2 sm:text-sm">
+          <Clock className="size-4 shrink-0" /> Start time
         </label>
 
-        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground sm:text-xs">
           {LEGEND.map((item) => (
             <span key={item.status} className="flex items-center gap-1.5">
-              <span className={cn("size-2.5 rounded-full", item.className)} />
+              <span className={cn("size-2.5 shrink-0 rounded-full", item.className)} />
               {item.label}
             </span>
           ))}
@@ -269,16 +276,16 @@ export function BookingFlow({
         {loading ? (
           <p className="mt-3 text-sm text-muted-foreground">Loading availability…</p>
         ) : (
-          <div className="mt-3 grid gap-6 md:grid-cols-2">
+          <div className="mt-3 grid gap-4 md:grid-cols-2 md:gap-6">
             {courts.map((court) => {
               const courtSlots = (slotsByCourt[court.id] ?? []).filter((s) => s.date === date);
               return (
-                <div key={court.id} className="surface-card p-4">
+                <div key={court.id} className="surface-card p-3 sm:p-4">
                   <h3 className="text-base font-semibold">{court.name}</h3>
                   {courtSlots.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">Closed this day.</p>
                   ) : (
-                    <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                       {courtSlots.map((s) => {
                         const selected = s.startMs === selectedStartMs && court.id === selectedCourtId;
                         return (
@@ -326,18 +333,18 @@ export function BookingFlow({
       </div>
 
       {selectedStartMs !== null && selectedCourtId !== null && (
-        <div className="surface-card p-5">
-          <label className="mb-1 block text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="surface-card p-4 sm:p-5">
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
             {selectedCourtName} · Duration (hours)
           </label>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             {Array.from({ length: maxDuration }, (_, i) => i + 1).map((h) => (
               <button
                 key={h}
                 type="button"
                 onClick={() => setHours(h)}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                  "flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors",
                   h === hours
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-accent",

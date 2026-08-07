@@ -9,8 +9,8 @@ export async function SiteHeader() {
 
   return (
     <header className="border-b border-border bg-background">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold text-primary">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:px-4">
+        <Link href="/" className="flex min-w-0 items-center gap-2 font-display text-base font-bold text-primary sm:text-lg">
           <Image
             src="/logo.png"
             alt={settings.businessName}
@@ -18,17 +18,18 @@ export async function SiteHeader() {
             height={28}
             className="size-7 shrink-0 rounded-lg object-cover"
           />
-          {settings.businessName}
+          <span className="truncate">{settings.businessName}</span>
         </Link>
-        <nav className="flex items-center gap-5 text-sm font-medium text-muted-foreground">
+        <nav className="flex items-center gap-3 text-sm font-medium text-muted-foreground sm:gap-5">
           <Link href="/" className="transition-colors hover:text-foreground">
             Home
           </Link>
           <Link href="/book" className="transition-colors hover:text-foreground">
-            Book a court
+            Book<span className="hidden sm:inline"> a court</span>
           </Link>
           <Link href="/my-bookings" className="transition-colors hover:text-foreground">
-            My bookings
+            <span className="hidden sm:inline">My b</span>
+            <span className="sm:hidden">B</span>ookings
           </Link>
           {user?.role === "admin" && (
             <Link href="/admin" className="transition-colors hover:text-foreground">
