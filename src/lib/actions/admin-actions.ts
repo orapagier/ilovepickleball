@@ -25,6 +25,10 @@ async function requireAdminOrThrow(): Promise<SessionUser> {
 function revalidateBookingViews(bookingId?: string) {
   revalidatePath("/admin");
   revalidatePath("/admin/bookings");
+  revalidatePath("/admin/users");
+  // An admin can also act on bookings from /my-bookings, which lists every
+  // customer's for them.
+  revalidatePath("/my-bookings");
   if (bookingId) revalidatePath(`/book/${bookingId}`);
 }
 

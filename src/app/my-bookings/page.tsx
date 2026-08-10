@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { UserRound } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { getSettings, getPriceTiers } from "@/lib/booking-data";
@@ -7,6 +8,8 @@ import { reapExpiredBookings } from "@/lib/expiry";
 import { formatMoney } from "@/lib/format";
 import { computeBookingPriceCents } from "@/lib/pricing";
 import { CancelButton } from "@/components/booking/cancel-button";
+import { ActionButton } from "@/components/action-button";
+import { adminCancelBooking } from "@/lib/actions/admin-actions";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -31,20 +34,34 @@ export default async function MyBookingsPage() {
 
   await reapExpiredBookings();
 
+  /* An admin gets every customer's bookings here, each labelled with who holds
+     the slot; everyone else sees only their own. The customer relation is
+     always loaded but only rendered for an admin — for a customer it is just
+     themselves, so there is nothing to disclose either way. */
+  const isAdmin = user.role === "admin";
+
   const [bookings, settings, tiers] = await Promise.all([
     prisma.booking.findMany({
-      where: { customerId: user.id },
-      include: { court: true, payment: true },
+      where: isAdmin ? {} : { customerId: user.id },
+      include: { court: true, payment: true, customer: true },
       orderBy: { startUtc: "desc" },
+      take: isAdmin ? 200 : undefined,
     }),
     getSettings(),
     getPriceTiers(),
   ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-10">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-3xl font-bold">My bookings</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-3xl font-bold">{isAdmin ? "All bookings" : "My bookings"}</h1>
+          {isAdmin && (
+            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
+              Admin view — every customer
+            </span>
+          )}
+        </div>
         <Link
           href="/book"
           className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
@@ -55,7 +72,9 @@ export default async function MyBookingsPage() {
 
       {bookings.length === 0 ? (
         <p className="surface-card p-8 text-center text-sm text-muted-foreground">
-          No bookings yet. Reserve your first court slot to see it here.
+          {isAdmin
+            ? "No bookings yet."
+            : "No bookings yet. Reserve your first court slot to see it here."}
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
@@ -77,6 +96,11 @@ export default async function MyBookingsPage() {
               fallbackCentsPerHour: settings.priceCentsPerHour,
             });
 
+            /* Only the booking's owner gets the detail link and the customer
+               cancel action — both are owner-gated server-side, so offering
+               them to an admin on someone else's row would just error. */
+            const own = b.customerId === user.id;
+
             return (
               <li key={b.id} className="surface-card flex flex-wrap items-center gap-4 p-5">
                 <div className="min-w-48 grow">
@@ -86,6 +110,20 @@ export default async function MyBookingsPage() {
                   <p className="mt-1 text-sm text-muted-foreground">
                     {b.hours}h · {formatMoney(totalCents, settings.currency)}
                   </p>
+                  {isAdmin && (
+                    <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+                      <UserRound className="size-4 shrink-0 text-primary" />
+                      <span className="font-medium">{b.customer.name || "Unnamed"}</span>
+                      {b.customer.phone && <span className="text-muted-foreground">{b.customer.phone}</span>}
+                      <span className="text-muted-foreground">{b.customer.email}</span>
+                      <Link
+                        href={`/admin/users/${b.customerId}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        Records
+                      </Link>
+                    </p>
+                  )}
                 </div>
 
                 <span
@@ -101,11 +139,24 @@ export default async function MyBookingsPage() {
                   {statusLabel(b)}
                 </span>
 
-                <Link href={`/book/${b.id}`} className="text-sm font-medium text-primary hover:underline">
-                  View
-                </Link>
+                {own && (
+                  <Link href={`/book/${b.id}`} className="text-sm font-medium text-primary hover:underline">
+                    View
+                  </Link>
+                )}
 
-                {CANCELLABLE.includes(b.status) && <CancelButton bookingId={b.id} />}
+                {CANCELLABLE.includes(b.status) &&
+                  (own ? (
+                    <CancelButton bookingId={b.id} />
+                  ) : (
+                    <ActionButton
+                      action={adminCancelBooking.bind(null, b.id)}
+                      confirmMessage="Cancel this customer's booking?"
+                      className="shrink-0 rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    >
+                      Cancel
+                    </ActionButton>
+                  ))}
               </li>
             );
           })}

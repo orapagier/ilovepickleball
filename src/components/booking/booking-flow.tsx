@@ -97,17 +97,42 @@ export function BookingFlow({
   const [selectedStartMs, setSelectedStartMs] = useState<number | null>(null);
   const [hours, setHours] = useState(1);
   const [note, setNote] = useState("");
+  const [courtFilterId, setCourtFilterId] = useState<number | null>(null);
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
   const stripRef = useRef<HTMLDivElement>(null);
+  const [stripEdges, setStripEdges] = useState({ start: false, end: false });
 
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
   const stripDates = Array.from({ length: totalAdvanceDays + 1 }, (_, i) => addDaysISO(todayISO, i));
+
+  /* Narrowing to one court gives its column the full width of a phone screen.
+     A filter that matched nothing (a court deactivated mid-session) falls back
+     to showing everything rather than rendering an empty grid. */
+  const filteredCourts = courts.filter((c) => c.id === courtFilterId);
+  const shownCourts = courtFilterId === null || filteredCourts.length === 0 ? courts : filteredCourts;
 
   function selectDate(d: string) {
     setDate(d);
     setSelectedCourtId(null);
     setSelectedStartMs(null);
     setLoading(true);
+  }
+
+  /** Tapping the active court again clears the filter, so the chips both
+   *  select and deselect. A selection on a court being hidden is dropped —
+   *  otherwise the booking form would stay open over an invisible slot. */
+  function toggleCourtFilter(courtId: number | null) {
+    const next = courtFilterId === courtId ? null : courtId;
+    setCourtFilterId(next);
+    if (next !== null && selectedCourtId !== null && selectedCourtId !== next) {
+      setSelectedCourtId(null);
+      setSelectedStartMs(null);
+    }
+  }
+
+  function scrollStrip(direction: -1 | 1) {
+    const el = stripRef.current;
+    if (el) el.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
   }
 
   /* Pull the selected day back into view when the date changes from outside the
@@ -118,6 +143,25 @@ export function BookingFlow({
       ?.querySelector(`[data-date="${date}"]`)
       ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [date]);
+
+  /* The strip's scrollbar is hidden, so its arrows have to carry the signal it
+     used to give: which way there is still strip left to travel. */
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setStripEdges({ start: el.scrollLeft > 1, end: el.scrollLeft < max - 1 });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +196,7 @@ export function BookingFlow({
      instead of shifting the whole table out of alignment. */
   const slotByCourtAndStart = new Map<number, Map<number, Slot>>();
   const rowStartSet = new Set<number>();
-  for (const court of courts) {
+  for (const court of shownCourts) {
     const byStart = new Map<number, Slot>();
     for (const s of slotsByCourt[court.id] ?? []) {
       if (s.date !== date) continue;
@@ -261,42 +305,94 @@ export function BookingFlow({
 
       {/* Every bookable day on one swipeable line, so picking a nearby date is a
           thumb-flick rather than a trip through the calendar picker. The
-          negative margin lets cells scroll under the page padding to the screen
-          edge; the scroll stays inside this box, so the page never widens. */}
-      <div
-        ref={stripRef}
-        className="-mx-3 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-3 pb-1 sm:-mx-4 sm:gap-2 sm:px-4"
-      >
-        {stripDates.map((d) => {
-          const { weekday, day, month } = dateStripParts(d);
-          const selected = d === date;
-          return (
-            <button
-              key={d}
-              type="button"
-              data-date={d}
-              onClick={() => selectDate(d)}
-              aria-pressed={selected}
-              aria-label={formatDateLabel(d)}
-              className={cn(
-                "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition-colors sm:min-w-16",
-                selected
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
-                /* Today keeps a faint ring so the strip still reads as "starts
-                   here" once it has been scrolled away from the left edge. */
-                !selected && d === todayISO && "ring-1 ring-primary/40",
-              )}
-            >
-              {/* Opacity rather than a muted token, so the two small lines stay
-                  legible against the filled background of the selected cell. */}
-              <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{weekday}</span>
-              <span className="text-base font-bold leading-none sm:text-lg">{day}</span>
-              <span className="text-[10px] uppercase opacity-70">{month}</span>
-            </button>
-          );
-        })}
+          scrollbar is hidden at every width; a phone swipes the strip, and the
+          flanking arrows — which only appear once there is somewhere to go —
+          step it along on a laptop, where a mouse can't scroll sideways. */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => scrollStrip(-1)}
+          disabled={!stripEdges.start}
+          aria-label="Scroll dates backward"
+          className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+
+        {/* The negative margin lets cells scroll to the screen edge on a phone;
+            the scroll stays inside this box, so the page never widens. */}
+        <div
+          ref={stripRef}
+          className="no-scrollbar -mx-3 flex min-w-0 flex-1 snap-x snap-mandatory gap-1.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:gap-2 sm:px-0"
+        >
+          {stripDates.map((d) => {
+            const { weekday, day, month } = dateStripParts(d);
+            const selected = d === date;
+            return (
+              <button
+                key={d}
+                type="button"
+                data-date={d}
+                onClick={() => selectDate(d)}
+                aria-pressed={selected}
+                aria-label={formatDateLabel(d)}
+                className={cn(
+                  "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition-colors sm:min-w-16",
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                  /* Today keeps a faint ring so the strip still reads as "starts
+                     here" once it has been scrolled away from the left edge. */
+                  !selected && d === todayISO && "ring-1 ring-primary/40",
+                )}
+              >
+                {/* Opacity rather than a muted token, so the two small lines stay
+                    legible against the filled background of the selected cell. */}
+                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{weekday}</span>
+                <span className="text-base font-bold leading-none sm:text-lg">{day}</span>
+                <span className="text-[10px] uppercase opacity-70">{month}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => scrollStrip(1)}
+          disabled={!stripEdges.end}
+          aria-label="Scroll dates forward"
+          className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
+        >
+          <ChevronRight className="size-4" />
+        </button>
       </div>
+
+      {/* Court filter. With one court picked its column takes the full width of
+          a phone screen, and that court is the only one bookable from the grid
+          until the chip is tapped again. */}
+      {courts.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          {[{ id: null, name: "All courts" }, ...courts].map((c) => {
+            const active = courtFilterId === c.id;
+            return (
+              <button
+                key={c.id ?? "all"}
+                type="button"
+                onClick={() => toggleCourtFilter(c.id)}
+                aria-pressed={active}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm",
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:border-primary hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {c.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground sm:text-xs">
         {LEGEND.map((item) => (
@@ -321,13 +417,13 @@ export function BookingFlow({
           <div
             className="grid min-w-full [--court-col:4rem] [--time-col:4.25rem] sm:[--court-col:5.5rem] sm:[--time-col:6rem]"
             style={{
-              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${courts.length}, minmax(var(--court-col), 1fr))`,
+              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${shownCourts.length}, minmax(var(--court-col), 1fr))`,
             }}
           >
             <div className="border-b border-r border-border bg-secondary/60 px-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-2 sm:py-3 sm:text-xs">
               Time
             </div>
-            {courts.map((court) => (
+            {shownCourts.map((court) => (
               <div
                 key={court.id}
                 className="flex items-center justify-center border-b border-border bg-secondary/60 px-1.5 py-2.5 text-center text-[11px] font-semibold leading-tight text-balance sm:px-2 sm:py-3 sm:text-sm"
@@ -363,7 +459,7 @@ export function BookingFlow({
                     </span>
                   </div>
 
-                  {courts.map((court) => {
+                  {shownCourts.map((court) => {
                     const slot = slotByCourtAndStart.get(court.id)?.get(row.startMs);
                     const selected = slot?.startMs === selectedStartMs && court.id === selectedCourtId;
                     const status = slot?.status;

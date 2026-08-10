@@ -140,3 +140,15 @@
   background-image: var(--background-image-court);
   color: var(--color-navy-foreground);
 }
+
+/* Hides the scrollbar without disabling the scroll — for strips that are
+ * swiped on a phone and stepped through with their own arrows on a laptop,
+ * where a permanent horizontal scrollbar is just visual noise. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
