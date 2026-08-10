@@ -10,6 +10,16 @@ export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }
 
+/** `formatMoney` without the trailing ".00" on whole amounts — for the dense
+ * phone-width grid, where "₱200" fits a column that "₱200.00" does not. */
+export function formatMoneyCompact(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+  }).format(cents / 100);
+}
+
 /** Minutes-from-midnight (0..1440) to a label like "8 AM" or "1:30 PM". */
 export function formatMinuteOfDay(min: number): string {
   const h = Math.floor(min / 60) % 24;

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
-import { formatMoney, formatDateLabel, formatMinuteOfDay } from "@/lib/format";
+import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay } from "@/lib/format";
 import { computeBookingPriceCents, localMinuteOfDay, tierRateForMinute, type PriceTier } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
@@ -249,19 +249,28 @@ export function BookingFlow({
       </div>
 
       {tiers.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-secondary/50 px-3 py-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rates</span>
-          {tiers.map((t) => (
-            <span
-              key={t.startMin}
-              className="flex items-baseline gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1"
-            >
-              <span className="text-sm font-bold text-primary">{formatMoney(t.priceCentsPerHour, currency)}</span>
-              <span className="text-[11px] text-muted-foreground">
-                {formatMinuteOfDay(t.startMin)} – {formatMinuteOfDay(t.endMin)}
+        /* Chips stack their price over their time window and sit in a two-up
+           grid on a phone — side by side on one line they either overflow or
+           wrap one-per-row, both of which waste the width. */
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/50 p-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:px-3 sm:py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+            Rates per hour
+          </span>
+          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+            {tiers.map((t) => (
+              <span
+                key={t.startMin}
+                className="flex flex-col items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-center sm:flex-row sm:items-baseline sm:gap-1.5 sm:px-2.5 sm:py-1"
+              >
+                <span className="text-sm font-bold text-primary">
+                  {formatMoneyCompact(t.priceCentsPerHour, currency)}
+                </span>
+                <span className="whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
+                  {formatMinuteOfDay(t.startMin)} – {formatMinuteOfDay(t.endMin)}
+                </span>
               </span>
-            </span>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -280,22 +289,24 @@ export function BookingFlow({
         <p className="surface-card p-6 text-center text-sm text-muted-foreground">Closed this day.</p>
       ) : (
         <div className="surface-card overflow-x-auto">
-          {/* `w-max min-w-full`: columns keep their minimum width and scroll the
-              card horizontally once there are too many courts to fit, but still
-              stretch to fill it when there aren't. */}
+          {/* The grid fills the card rather than sizing to its content, so two
+              courts stay side by side on a phone instead of pushing the time
+              column off-screen. Columns only stop shrinking at their minimums
+              (the `--*-col` vars, widened from `sm` up), and the card scrolls
+              horizontally past that — i.e. once there are too many courts. */}
           <div
-            className="grid w-max min-w-full"
+            className="grid min-w-full [--court-col:4rem] [--time-col:4.25rem] sm:[--court-col:5.5rem] sm:[--time-col:6rem]"
             style={{
-              gridTemplateColumns: `minmax(5.25rem, 7rem) repeat(${courts.length}, minmax(5.5rem, 1fr))`,
+              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${courts.length}, minmax(var(--court-col), 1fr))`,
             }}
           >
-            <div className="border-b border-r border-border bg-secondary/60 px-2 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="border-b border-r border-border bg-secondary/60 px-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-2 sm:py-3 sm:text-xs">
               Time
             </div>
             {courts.map((court) => (
               <div
                 key={court.id}
-                className="border-b border-border bg-secondary/60 px-2 py-3 text-center text-sm font-semibold"
+                className="flex items-center justify-center border-b border-border bg-secondary/60 px-1.5 py-2.5 text-center text-[11px] font-semibold leading-tight text-balance sm:px-2 sm:py-3 sm:text-sm"
               >
                 {court.name}
               </div>
@@ -309,20 +320,22 @@ export function BookingFlow({
               return (
                 <Fragment key={row.startMs}>
                   {showBand && (
-                    <div className="col-span-full border-b border-border bg-secondary/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <div className="col-span-full border-b border-border bg-secondary/60 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-3 sm:text-xs">
                       {row.part}
                     </div>
                   )}
 
                   <div
                     className={cn(
-                      "flex flex-col justify-center border-r border-border bg-secondary/25 px-2 py-2 leading-tight",
+                      "flex flex-col justify-center border-r border-border bg-secondary/25 px-1.5 py-2 leading-tight sm:px-2",
                       rule,
                     )}
                   >
-                    <span className="text-xs font-medium sm:text-sm">{row.rangeLabel}</span>
-                    <span className="text-xs font-bold text-primary sm:text-sm">
-                      {formatMoney(row.slotCents, currency)}
+                    {/* Nowrap keeps "11 AM-12 PM" on one line; the `auto` track
+                        widens to fit it rather than the label wrapping. */}
+                    <span className="whitespace-nowrap text-[11px] font-medium sm:text-sm">{row.rangeLabel}</span>
+                    <span className="whitespace-nowrap text-[11px] font-bold text-primary sm:text-sm">
+                      {formatMoneyCompact(row.slotCents, currency)}
                     </span>
                   </div>
 
@@ -332,7 +345,7 @@ export function BookingFlow({
                     const status = slot?.status;
                     const label = selected ? "Selected" : status ? SLOT_STATUS_LABEL[status] : "Closed";
                     return (
-                      <div key={court.id} className={cn("flex p-1.5", rule)}>
+                      <div key={court.id} className={cn("flex p-1 sm:p-1.5", rule)}>
                         <button
                           type="button"
                           disabled={!slot?.available}
