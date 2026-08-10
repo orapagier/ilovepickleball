@@ -7,9 +7,7 @@ import {
   getBusyIntervalsWithStatus,
   getPriceTiers,
 } from "@/lib/booking-data";
-import { buildAvailability, rangeUtcBounds } from "@/lib/scheduling";
-
-const MAX_BOOKING_HOURS = 6;
+import { buildAvailability, rangeUtcBounds, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 
 /**
  * GET /api/availability?courtId=1&date=YYYY-MM-DD
@@ -26,10 +24,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "courtId and date (YYYY-MM-DD) are required" }, { status: 400 });
   }
 
-  const settings = await getSettings();
-  const hours = await getBusinessHours();
-  const blackouts = await getBlackoutDateSet();
-  const tiers = await getPriceTiers();
+  /* Four independent reads, so they go together — awaited one after another
+     they cost four serial round trips to the database, which dominates this
+     route's latency when the region is far from the user. */
+  const [settings, hours, blackouts, tiers] = await Promise.all([
+    getSettings(),
+    getBusinessHours(),
+    getBlackoutDateSet(),
+    getPriceTiers(),
+  ]);
 
   const nextDate = DateTime.fromISO(date, { zone: settings.timezone }).plus({ days: 1 }).toFormat("yyyy-LL-dd");
   const { start } = rangeUtcBounds(settings.timezone, date, date);

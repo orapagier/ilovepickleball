@@ -3,6 +3,10 @@ import { DateTime } from "luxon";
 /** Customers can only book courts this many days out from today. */
 export const MAX_ADVANCE_DAYS = 30;
 
+/** Longest single reservation, in slots — enforced when a booking is created,
+ *  when an admin reschedules one, and advertised by the availability APIs. */
+export const MAX_BOOKING_HOURS = 6;
+
 export type BusinessHourRow = { weekday: number; openMin: number; closeMin: number };
 export type BusyInterval = { start: Date; end: Date };
 /** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart from one still awaiting payment/call/verification. */

@@ -44,9 +44,11 @@ export const getPriceTiers = cache(async (): Promise<PriceTier[]> => {
   return prisma.priceTier.findMany({ orderBy: { startMin: "asc" } });
 });
 
-/** Busy intervals for a single court overlapping [from, to). Reaps expired holds first. */
+/** Busy intervals for a single court overlapping [from, to). Reaps expired holds
+ *  first, unconditionally — this feeds the conflict check when a booking is
+ *  created, where a hold left un-reaped would wrongly block a free slot. */
 export async function getBusyIntervals(courtId: number, from: Date, to: Date): Promise<BusyInterval[]> {
-  await reapExpiredBookings();
+  await reapExpiredBookings({ force: true });
   const rows = await prisma.booking.findMany({
     where: {
       courtId,
@@ -59,8 +61,37 @@ export async function getBusyIntervals(courtId: number, from: Date, to: Date): P
   return rows.map((r) => ({ start: r.startUtc, end: r.endUtc }));
 }
 
+/** Every court's busy intervals in one query, grouped by court id. The agent API
+ *  reports availability across all courts at once, which as repeated
+ *  `getBusyIntervalsWithStatus` calls would be a query per court per request.
+ *  Courts with nothing booked come back with an empty array, not a missing key. */
+export async function getBusyIntervalsByCourt(
+  courtIds: number[],
+  from: Date,
+  to: Date,
+): Promise<Map<number, StatusInterval[]>> {
+  await reapExpiredBookings();
+  const byCourt = new Map<number, StatusInterval[]>(courtIds.map((id) => [id, []]));
+  if (courtIds.length === 0) return byCourt;
+
+  const rows = await prisma.booking.findMany({
+    where: {
+      courtId: { in: courtIds },
+      status: { in: [...ACTIVE_STATUSES] },
+      endUtc: { gt: from },
+      startUtc: { lt: to },
+    },
+    select: { courtId: true, startUtc: true, endUtc: true, status: true },
+  });
+  for (const r of rows) {
+    byCourt.get(r.courtId)?.push({ start: r.startUtc, end: r.endUtc, confirmed: r.status === "confirmed" });
+  }
+  return byCourt;
+}
+
 /** Same as `getBusyIntervals`, but tags each interval as confirmed or still-pending so
- *  callers (the availability API) can color slots instead of just marking them taken. */
+ *  callers (the availability API) can color slots instead of just marking them taken.
+ *  Display-only, so it takes the throttled sweep rather than forcing one. */
 export async function getBusyIntervalsWithStatus(courtId: number, from: Date, to: Date): Promise<StatusInterval[]> {
   await reapExpiredBookings();
   const rows = await prisma.booking.findMany({

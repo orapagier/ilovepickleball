@@ -5,11 +5,10 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, type SessionUser } from "@/lib/auth-helpers";
 import { getSettings, getBusinessHours, getBlackoutDateSet, ACTIVE_STATUSES } from "@/lib/booking-data";
-import { isValidBookingRange } from "@/lib/scheduling";
+import { isValidBookingRange, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 
 export type ActionState = { error?: string; ok?: boolean };
 
-const MAX_BOOKING_HOURS = 6;
 const RESCHEDULABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
 /** How long a customer has to resubmit a corrected reference number after
  *  the admin flags one as invalid, before the hold auto-cancels. */
@@ -314,20 +313,26 @@ export async function updatePriceTiers(_prev: ActionState, formData: FormData): 
   await requireAdminOrThrow();
 
   const count = Number(formData.get("tierCount") ?? 0);
-  const rows: { startMin: number; endMin: number; priceCentsPerHour: number }[] = [];
+  const rows: { startMin: number; endMin: number; weekday: number | null; priceCentsPerHour: number }[] = [];
   for (let i = 0; i < count; i++) {
     const startMin = timeToMinutes(String(formData.get(`start-${i}`) ?? "00:00"));
     const endRaw = timeToMinutes(String(formData.get(`end-${i}`) ?? "00:00"));
     // Same "00:00 close means midnight" convention as business hours.
     const endMin = endRaw === 0 ? 1440 : endRaw;
     const priceInput = Number(formData.get(`price-${i}`));
+    // The select's "" option means every day, which is stored as a null weekday.
+    const weekdayRaw = String(formData.get(`weekday-${i}`) ?? "");
+    const weekday = weekdayRaw === "" ? null : Number(weekdayRaw);
     if (!Number.isFinite(priceInput) || priceInput <= 0) {
       return { error: `Enter a valid rate for tier ${i + 1}.` };
+    }
+    if (weekday !== null && (!Number.isInteger(weekday) || weekday < 0 || weekday > 6)) {
+      return { error: `Tier ${i + 1}: pick a valid day.` };
     }
     if (startMin < 0 || startMin > 1440 || endMin < 0 || endMin > 1440 || startMin >= endMin) {
       return { error: `Tier ${i + 1}: start time must be before end time.` };
     }
-    rows.push({ startMin, endMin, priceCentsPerHour: Math.round(priceInput * 100) });
+    rows.push({ startMin, endMin, weekday, priceCentsPerHour: Math.round(priceInput * 100) });
   }
 
   await prisma.$transaction([prisma.priceTier.deleteMany({}), prisma.priceTier.createMany({ data: rows })]);

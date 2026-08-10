@@ -13,12 +13,11 @@ import {
   getPriceTiers,
   ACTIVE_STATUSES,
 } from "@/lib/booking-data";
-import { isValidBookingRange, isFree, MAX_ADVANCE_DAYS } from "@/lib/scheduling";
+import { isValidBookingRange, isFree, MAX_ADVANCE_DAYS, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 import { computeBookingPriceCents } from "@/lib/pricing";
 
 export type ActionState = { error?: string; ok?: boolean };
 
-const MAX_BOOKING_HOURS = 6;
 /** Bookings this long or longer need a phone call to arrange payment instead of an instant reference-number reserve. */
 const CALL_REQUIRED_HOURS = 4;
 const REFERENCE_PAY_METHODS = ["gcash", "bdo", "qrph"] as const;

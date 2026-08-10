@@ -9,26 +9,13 @@ import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/action-button";
 import { RescheduleControl } from "@/components/admin/reschedule-control";
 import { adminCancelBooking, adminDeleteBooking } from "@/lib/actions/admin-actions";
-
-const STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Pending payment",
-  awaiting_confirmation: "Verifying payment",
-  awaiting_call: "Awaiting call",
-  confirmed: "Confirmed",
-  cancelled: "Cancelled",
-  expired: "Expired",
-};
+import { BOOKING_STATUS_LABELS, bookingStatusLabel } from "@/lib/booking-status";
 
 const EDITABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
 const DELETABLE_STATUSES = ["cancelled", "expired"];
 const DELETE_AFTER_DAYS = 30;
 
-const FILTERS = ["all", ...Object.keys(STATUS_LABELS)];
-
-function statusLabel(b: { status: string; payment: { status: string } | null }): string {
-  if (b.status === "pending_payment" && b.payment?.status === "rejected") return "Fixing reference number";
-  return STATUS_LABELS[b.status] ?? b.status;
-}
+const FILTERS = ["all", ...Object.keys(BOOKING_STATUS_LABELS)];
 
 export default async function AdminBookingsPage(props: PageProps<"/admin/bookings">) {
   const searchParams = await props.searchParams;
@@ -66,7 +53,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                 : "bg-secondary text-secondary-foreground hover:bg-accent",
             )}
           >
-            {f === "all" ? "All" : STATUS_LABELS[f]}
+            {f === "all" ? "All" : BOOKING_STATUS_LABELS[f as keyof typeof BOOKING_STATUS_LABELS]}
           </Link>
         ))}
       </div>
@@ -101,7 +88,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {b.customer.name || b.customer.email} · {formatMoney(totalCents, settings.currency)} ·{" "}
-                  {statusLabel(b)}
+                  {bookingStatusLabel(b)}
                   {b.payMethod ? ` · ${PAY_METHOD_LABELS[b.payMethod] ?? b.payMethod}` : ""}
                 </p>
                 {editable && (
