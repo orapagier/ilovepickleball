@@ -1,11 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useState, useActionState } from "react";
+import { Fragment, useEffect, useRef, useState, useActionState } from "react";
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
-import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay } from "@/lib/format";
+import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay, dateStripParts } from "@/lib/format";
 import { computeBookingPriceCents, localMinuteOfDay, tierRateForMinute, type PriceTier } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
@@ -98,8 +98,10 @@ export function BookingFlow({
   const [hours, setHours] = useState(1);
   const [note, setNote] = useState("");
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
+  const stripRef = useRef<HTMLDivElement>(null);
 
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
+  const stripDates = Array.from({ length: totalAdvanceDays + 1 }, (_, i) => addDaysISO(todayISO, i));
 
   function selectDate(d: string) {
     setDate(d);
@@ -107,6 +109,15 @@ export function BookingFlow({
     setSelectedStartMs(null);
     setLoading(true);
   }
+
+  /* Pull the selected day back into view when the date changes from outside the
+     strip — the header arrows and the calendar picker can both land on a day
+     that has been scrolled well off the end. */
+  useEffect(() => {
+    stripRef.current
+      ?.querySelector(`[data-date="${date}"]`)
+      ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [date]);
 
   useEffect(() => {
     let cancelled = false;
@@ -248,31 +259,44 @@ export function BookingFlow({
         </div>
       </div>
 
-      {tiers.length > 0 && (
-        /* Chips stack their price over their time window and sit in a two-up
-           grid on a phone — side by side on one line they either overflow or
-           wrap one-per-row, both of which waste the width. */
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/50 p-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:px-3 sm:py-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
-            Rates per hour
-          </span>
-          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
-            {tiers.map((t) => (
-              <span
-                key={t.startMin}
-                className="flex flex-col items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-center sm:flex-row sm:items-baseline sm:gap-1.5 sm:px-2.5 sm:py-1"
-              >
-                <span className="text-sm font-bold text-primary">
-                  {formatMoneyCompact(t.priceCentsPerHour, currency)}
-                </span>
-                <span className="whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
-                  {formatMinuteOfDay(t.startMin)} – {formatMinuteOfDay(t.endMin)}
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Every bookable day on one swipeable line, so picking a nearby date is a
+          thumb-flick rather than a trip through the calendar picker. The
+          negative margin lets cells scroll under the page padding to the screen
+          edge; the scroll stays inside this box, so the page never widens. */}
+      <div
+        ref={stripRef}
+        className="-mx-3 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-3 pb-1 sm:-mx-4 sm:gap-2 sm:px-4"
+      >
+        {stripDates.map((d) => {
+          const { weekday, day, month } = dateStripParts(d);
+          const selected = d === date;
+          return (
+            <button
+              key={d}
+              type="button"
+              data-date={d}
+              onClick={() => selectDate(d)}
+              aria-pressed={selected}
+              aria-label={formatDateLabel(d)}
+              className={cn(
+                "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition-colors sm:min-w-16",
+                selected
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                /* Today keeps a faint ring so the strip still reads as "starts
+                   here" once it has been scrolled away from the left edge. */
+                !selected && d === todayISO && "ring-1 ring-primary/40",
+              )}
+            >
+              {/* Opacity rather than a muted token, so the two small lines stay
+                  legible against the filled background of the selected cell. */}
+              <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{weekday}</span>
+              <span className="text-base font-bold leading-none sm:text-lg">{day}</span>
+              <span className="text-[10px] uppercase opacity-70">{month}</span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground sm:text-xs">
         {LEGEND.map((item) => (

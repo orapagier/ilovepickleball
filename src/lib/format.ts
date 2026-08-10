@@ -29,6 +29,19 @@ export function formatMinuteOfDay(min: number): string {
   return m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+/** A plain YYYY-MM-DD calendar date split into the three stacked lines of a
+ * date-strip cell — e.g. `{ weekday: "Sat", day: "15", month: "Aug" }`. */
+export function dateStripParts(iso: string): { weekday: string; day: string; month: string } {
+  const dt = new Date(`${iso}T00:00:00Z`);
+  const part = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(dt);
+  return {
+    weekday: part({ weekday: "short" }),
+    day: part({ day: "numeric" }),
+    month: part({ month: "short" }),
+  };
+}
+
 /** Same calendar-date rules as `formatDateLabel` but without the weekday, for
  * tight phone-width rows where the full label would wrap. */
 export function formatDateLabelShort(iso: string): string {
