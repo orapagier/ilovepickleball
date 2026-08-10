@@ -20,7 +20,9 @@ export async function SiteHeader() {
           />
           <span className="truncate">{settings.businessName}</span>
         </Link>
-        <nav className="flex items-center gap-3 text-sm font-medium text-muted-foreground sm:gap-5">
+        {/* `ml-auto` keeps the links flush right even when the header wraps and
+            the nav gets a line of its own. */}
+        <nav className="ml-auto flex items-center justify-end gap-3 text-sm font-medium text-muted-foreground sm:gap-5">
           <Link href="/" className="transition-colors hover:text-foreground">
             Home
           </Link>

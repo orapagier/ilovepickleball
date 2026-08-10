@@ -1,4 +1,7 @@
-export type PriceTier = { startMin: number; endMin: number; priceCentsPerHour: number };
+/** `weekday` is 0=Sun..6=Sat, or null for a band that applies every day. */
+export type PriceTier = { startMin: number; endMin: number; weekday: number | null; priceCentsPerHour: number };
+
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
 /** Business-local minutes-from-midnight for an instant, via Intl (works in both server and client code, no timezone lib needed). */
 export function localMinuteOfDay(date: Date, tz: string): number {
@@ -13,10 +16,29 @@ export function localMinuteOfDay(date: Date, tz: string): number {
   return hour * 60 + minute;
 }
 
-/** Rate for the hour-block starting at `minuteOfDay`; falls back to the flat rate if no tier covers it. */
-export function tierRateForMinute(minuteOfDay: number, tiers: PriceTier[], fallbackCentsPerHour: number): number {
-  const tier = tiers.find((t) => minuteOfDay >= t.startMin && minuteOfDay < t.endMin);
-  return tier ? tier.priceCentsPerHour : fallbackCentsPerHour;
+/** Business-local weekday (0=Sun..6=Sat) for an instant, same Intl approach as `localMinuteOfDay`. */
+export function localWeekday(date: Date, tz: string): number {
+  const short = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(date);
+  return WEEKDAY_INDEX[short] ?? 0;
+}
+
+/**
+ * Rate for the hour-block starting at `minuteOfDay` on `weekday`; falls back to
+ * the flat rate if no tier covers it. A tier pinned to this weekday wins over
+ * one that covers the same minute on every day, so an every-day band can be
+ * left in place as the general case and overridden a day at a time.
+ */
+export function tierRateForMinute(
+  minuteOfDay: number,
+  weekday: number,
+  tiers: PriceTier[],
+  fallbackCentsPerHour: number,
+): number {
+  const covering = tiers.filter(
+    (t) => minuteOfDay >= t.startMin && minuteOfDay < t.endMin && (t.weekday === null || t.weekday === weekday),
+  );
+  if (covering.length === 0) return fallbackCentsPerHour;
+  return (covering.find((t) => t.weekday !== null) ?? covering[0]).priceCentsPerHour;
 }
 
 /** The cheapest applicable rate, for "Starts at ₱X/hour" display. */
@@ -39,7 +61,9 @@ export function computeBookingPriceCents(params: {
   for (let i = 0; i < hours; i++) {
     const blockStart = new Date(startMs + i * slotDurationMin * 60_000);
     const minuteOfDay = localMinuteOfDay(blockStart, tz);
-    const rate = tierRateForMinute(minuteOfDay, tiers, fallbackCentsPerHour);
+    /* Derived per block, not per booking — a booking that runs past midnight
+       crosses into the next day's rates. */
+    const rate = tierRateForMinute(minuteOfDay, localWeekday(blockStart, tz), tiers, fallbackCentsPerHour);
     total += Math.round((rate * slotDurationMin) / 60);
   }
   return total;

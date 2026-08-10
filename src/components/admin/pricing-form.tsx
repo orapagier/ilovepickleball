@@ -5,10 +5,12 @@ import { Trash2 } from "lucide-react";
 import { updatePriceTiers, type ActionState } from "@/lib/actions/admin-actions";
 import { minutesToTime } from "@/lib/format";
 
-type Tier = { startMin: number; endMin: number; priceCentsPerHour: number };
+type Tier = { startMin: number; endMin: number; weekday: number | null; priceCentsPerHour: number };
 type Row = Tier & { key: number };
 
-const DEFAULT_TIER: Tier = { startMin: 480, endMin: 540, priceCentsPerHour: 20000 };
+const DEFAULT_TIER: Tier = { startMin: 480, endMin: 540, weekday: null, priceCentsPerHour: 20000 };
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export function PricingForm({ tiers }: { tiers: Tier[] }) {
   const [rows, setRows] = useState<Row[]>(() =>
@@ -42,6 +44,21 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
             />
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            On
+            <select
+              name={`weekday-${i}`}
+              defaultValue={row.weekday === null ? "" : String(row.weekday)}
+              className="rounded border border-input bg-background px-2 py-1"
+            >
+              <option value="">Every day</option>
+              {WEEKDAYS.map((name, d) => (
+                <option key={name} value={d}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
             ₱
             <input
               type="number"
@@ -73,8 +90,8 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
       </button>
 
       <p className="text-xs text-muted-foreground">
-        Each hour of a booking is billed at whichever tier its start time falls into. Hours outside every tier fall
-        back to the flat rate set in Settings.
+        Each hour of a booking is billed at whichever tier its start time falls into. A tier set to one day beats an
+        “Every day” tier covering the same hours. Hours outside every tier fall back to the flat rate set in Settings.
       </p>
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
       {state?.ok && <p className="text-sm text-success">Saved.</p>}

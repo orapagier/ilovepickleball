@@ -2,14 +2,33 @@
 
 import { Fragment, useEffect, useRef, useState, useActionState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Info, Sunset } from "lucide-react";
 import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
 import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay, dateStripParts } from "@/lib/format";
-import { computeBookingPriceCents, localMinuteOfDay, tierRateForMinute, type PriceTier } from "@/lib/pricing";
+import {
+  computeBookingPriceCents,
+  localMinuteOfDay,
+  localWeekday,
+  tierRateForMinute,
+  type PriceTier,
+} from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The Sabbath this business keeps: sunset Friday to sunset Saturday, held as
+ *  fixed local clock times the same way the open hours are, and deliberately
+ *  separate from them — the courts reopen an hour after the Sabbath ends, so
+ *  the closed window and the Sabbath itself are not the same span. */
+const SABBATH_START = { weekday: 5, minute: 17 * 60 };
+const SABBATH_END = { weekday: 6, minute: 17 * 60 };
+
+function sabbathBound(bound: { weekday: number; minute: number }): string {
+  return `${WEEKDAY_NAMES[bound.weekday]} ${formatMinuteOfDay(bound.minute)}`;
+}
 
 type Court = { id: number; name: string };
 type SlotStatus = "available" | "confirmed" | "pending" | "past";
@@ -53,12 +72,16 @@ const SLOT_STATUS_LABEL: Record<SlotStatus, string> = {
   past: "Past",
 };
 
+/* Traffic-light reading of the grid: green is yours to take, red is gone,
+   amber is on its way to red. Selected stays the brand colour so the one slot
+   you are acting on never blends into the sea of open ones. Each swatch is the
+   solid token, matching the filled buttons rather than a washed-out tint. */
 const LEGEND: { key: string; label: string; className: string }[] = [
-  { key: "available", label: "Open", className: "border border-border bg-secondary" },
+  { key: "available", label: "Open", className: "bg-success-strong" },
   { key: "selected", label: "Selected", className: "bg-primary" },
-  { key: "confirmed", label: "Booked", className: "bg-success/70" },
-  { key: "pending", label: "Pending confirmation", className: "bg-warning/70" },
-  { key: "past", label: "Past", className: "bg-muted" },
+  { key: "confirmed", label: "Booked", className: "bg-destructive-strong" },
+  { key: "pending", label: "Pending confirmation", className: "bg-warning-strong" },
+  { key: "past", label: "Past", className: "bg-muted border border-border" },
 ];
 
 export function BookingFlow({
@@ -97,7 +120,6 @@ export function BookingFlow({
   const [selectedStartMs, setSelectedStartMs] = useState<number | null>(null);
   const [hours, setHours] = useState(1);
   const [note, setNote] = useState("");
-  const [courtFilterId, setCourtFilterId] = useState<number | null>(null);
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
   const stripRef = useRef<HTMLDivElement>(null);
   const [stripEdges, setStripEdges] = useState({ start: false, end: false });
@@ -105,29 +127,11 @@ export function BookingFlow({
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
   const stripDates = Array.from({ length: totalAdvanceDays + 1 }, (_, i) => addDaysISO(todayISO, i));
 
-  /* Narrowing to one court gives its column the full width of a phone screen.
-     A filter that matched nothing (a court deactivated mid-session) falls back
-     to showing everything rather than rendering an empty grid. */
-  const filteredCourts = courts.filter((c) => c.id === courtFilterId);
-  const shownCourts = courtFilterId === null || filteredCourts.length === 0 ? courts : filteredCourts;
-
   function selectDate(d: string) {
     setDate(d);
     setSelectedCourtId(null);
     setSelectedStartMs(null);
     setLoading(true);
-  }
-
-  /** Tapping the active court again clears the filter, so the chips both
-   *  select and deselect. A selection on a court being hidden is dropped —
-   *  otherwise the booking form would stay open over an invisible slot. */
-  function toggleCourtFilter(courtId: number | null) {
-    const next = courtFilterId === courtId ? null : courtId;
-    setCourtFilterId(next);
-    if (next !== null && selectedCourtId !== null && selectedCourtId !== next) {
-      setSelectedCourtId(null);
-      setSelectedStartMs(null);
-    }
   }
 
   function scrollStrip(direction: -1 | 1) {
@@ -196,7 +200,7 @@ export function BookingFlow({
      instead of shifting the whole table out of alignment. */
   const slotByCourtAndStart = new Map<number, Map<number, Slot>>();
   const rowStartSet = new Set<number>();
-  for (const court of shownCourts) {
+  for (const court of courts) {
     const byStart = new Map<number, Slot>();
     for (const s of slotsByCourt[court.id] ?? []) {
       if (s.date !== date) continue;
@@ -210,7 +214,7 @@ export function BookingFlow({
   const rows = rowStarts.map((startMs) => {
     const startMin = localMinuteOfDay(new Date(startMs), tz);
     const endMin = localMinuteOfDay(new Date(startMs + slotDurationMin * 60_000), tz);
-    const rateCents = tierRateForMinute(startMin, tiers, priceCentsPerHour);
+    const rateCents = tierRateForMinute(startMin, localWeekday(new Date(startMs), tz), tiers, priceCentsPerHour);
     return {
       startMs,
       part: dayPart(startMin),
@@ -218,6 +222,43 @@ export function BookingFlow({
       slotCents: Math.round((rateCents * slotDurationMin) / 60),
     };
   });
+
+  /* Read as UTC-midnight like the rest of the ISO-date arithmetic here, so the
+     weekday can't slip a day depending on the viewer's own timezone. Both days
+     the Sabbath touches carry the note: Friday runs up to it, Saturday out of
+     it, and each one's grid stops or starts partway through the day. */
+  const selectedWeekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const isSabbathDay = selectedWeekday === SABBATH_START.weekday || selectedWeekday === SABBATH_END.weekday;
+  /* Friday's bookable hours all run up to the Sabbath, so the note follows them
+     as what comes next; Saturday's all run out of it, so there it comes first.
+     Either way the card sits on the same side as the closure it describes. */
+  const sabbathNoteAfterGrid = selectedWeekday === SABBATH_START.weekday;
+
+  const sabbathCard = (
+    <div className="surface-card flex flex-col items-center gap-4 p-5 text-center sm:p-6">
+      <span className="flex size-11 items-center justify-center rounded-full bg-primary/10">
+        <Sunset className="size-5 text-primary" />
+      </span>
+      <div className="space-y-1.5">
+        <h3 className="font-display text-lg font-bold sm:text-xl">Closed for the Sabbath</h3>
+        <p className="mx-auto max-w-prose text-sm text-muted-foreground">
+          We keep the seventh day as a day of rest and worship, so no courts are booked from{" "}
+          <span className="font-semibold text-foreground">{sabbathBound(SABBATH_START)}</span> to{" "}
+          <span className="font-semibold text-foreground">{sabbathBound(SABBATH_END)}</span>. The hours shown{" "}
+          {sabbathNoteAfterGrid ? "above" : "below"} are the ones outside that — we&rsquo;d love to have you then.
+        </p>
+      </div>
+      <blockquote className="mx-auto max-w-prose rounded-lg border-l-2 border-primary bg-primary/5 px-4 py-3 text-left">
+        <p className="text-sm italic leading-relaxed text-foreground">
+          &ldquo;Remember the sabbath day, to keep it holy. Six days shalt thou labour, and do all thy work: but the
+          seventh day is the sabbath of the LORD thy God: in it thou shalt not do any work.&rdquo;
+        </p>
+        <footer className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
+          Exodus 20:8&ndash;10 (KJV)
+        </footer>
+      </blockquote>
+    </div>
+  );
 
   const selectedCourtSlots = selectedCourtId !== null ? (slotsByCourt[selectedCourtId] ?? []) : [];
   const selectedCourtName = courts.find((c) => c.id === selectedCourtId)?.name ?? "";
@@ -244,10 +285,12 @@ export function BookingFlow({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-6 sm:gap-5 sm:px-4 sm:py-8">
-      {closedLabel && (
+      {/* Suppressed on the two days that carry the full Sabbath card below, so a
+          visitor never reads two overlapping closure notices at once. */}
+      {closedLabel && !isSabbathDay && (
         <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0 text-primary" />
-          <span>Closed weekly {closedLabel} — closed for Sabbath rest.</span>
+          <span>Closed weekly {closedLabel} — we keep the seventh-day Sabbath.</span>
         </p>
       )}
 
@@ -367,33 +410,6 @@ export function BookingFlow({
         </button>
       </div>
 
-      {/* Court filter. With one court picked its column takes the full width of
-          a phone screen, and that court is the only one bookable from the grid
-          until the chip is tapped again. */}
-      {courts.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 sm:gap-2">
-          {[{ id: null, name: "All courts" }, ...courts].map((c) => {
-            const active = courtFilterId === c.id;
-            return (
-              <button
-                key={c.id ?? "all"}
-                type="button"
-                onClick={() => toggleCourtFilter(c.id)}
-                aria-pressed={active}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm",
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:border-primary hover:bg-accent hover:text-foreground",
-                )}
-              >
-                {c.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground sm:text-xs">
         {LEGEND.map((item) => (
           <span key={item.key} className="flex items-center gap-1.5">
@@ -402,6 +418,8 @@ export function BookingFlow({
           </span>
         ))}
       </div>
+
+      {isSabbathDay && !sabbathNoteAfterGrid && sabbathCard}
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading availability…</p>
@@ -417,13 +435,13 @@ export function BookingFlow({
           <div
             className="grid min-w-full [--court-col:4rem] [--time-col:4.25rem] sm:[--court-col:5.5rem] sm:[--time-col:6rem]"
             style={{
-              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${shownCourts.length}, minmax(var(--court-col), 1fr))`,
+              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${courts.length}, minmax(var(--court-col), 1fr))`,
             }}
           >
             <div className="border-b border-r border-border bg-secondary/60 px-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-2 sm:py-3 sm:text-xs">
               Time
             </div>
-            {shownCourts.map((court) => (
+            {courts.map((court) => (
               <div
                 key={court.id}
                 className="flex items-center justify-center border-b border-border bg-secondary/60 px-1.5 py-2.5 text-center text-[11px] font-semibold leading-tight text-balance sm:px-2 sm:py-3 sm:text-sm"
@@ -439,8 +457,11 @@ export function BookingFlow({
               const rule = i === rows.length - 1 ? "" : "border-b border-border";
               return (
                 <Fragment key={row.startMs}>
+                  {/* Tinted with the primary hue rather than `secondary`, so the
+                      day-part divider reads as its own thing against the court
+                      header and the time column, which share that neutral. */}
                   {showBand && (
-                    <div className="col-span-full border-b border-border bg-secondary/60 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-3 sm:text-xs">
+                    <div className="col-span-full border-b border-border bg-primary/10 px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wide text-primary sm:px-3 sm:text-xs">
                       {row.part}
                     </div>
                   )}
@@ -459,7 +480,7 @@ export function BookingFlow({
                     </span>
                   </div>
 
-                  {shownCourts.map((court) => {
+                  {courts.map((court) => {
                     const slot = slotByCourtAndStart.get(court.id)?.get(row.startMs);
                     const selected = slot?.startMs === selectedStartMs && court.id === selectedCourtId;
                     const status = slot?.status;
@@ -477,15 +498,19 @@ export function BookingFlow({
                           aria-label={`${court.name}, ${row.rangeLabel}, ${label}`}
                           className={cn(
                             "flex h-full min-h-11 w-full items-center justify-center rounded-lg border px-1 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                            /* Solid fills with their own foreground token —
+                               a 15%-opacity tint over the card read as washed
+                               out, and left the four states too close to tell
+                               apart at a glance on a phone. */
                             selected
                               ? "border-primary bg-primary text-primary-foreground"
                               : status === "confirmed"
-                                ? "cursor-not-allowed border-success/30 bg-success/15 text-success"
+                                ? "cursor-not-allowed border-destructive-strong bg-destructive-strong text-destructive-foreground"
                                 : status === "pending"
-                                  ? "cursor-not-allowed border-warning/30 bg-warning/15 text-warning"
+                                  ? "cursor-not-allowed border-warning-strong bg-warning-strong text-warning-foreground"
                                   : status === "available"
-                                    ? "border-border bg-secondary/70 text-muted-foreground hover:border-primary hover:bg-accent hover:text-foreground"
-                                    : "cursor-not-allowed border-transparent bg-muted text-muted-foreground/60",
+                                    ? "border-success-strong bg-success-strong text-success-foreground hover:brightness-110"
+                                    : "cursor-not-allowed border-border bg-muted text-muted-foreground",
                           )}
                         >
                           {label}
@@ -584,6 +609,11 @@ export function BookingFlow({
           </div>
         </div>
       )}
+
+      {/* Last on Friday, so picking a slot never pushes the booking form below
+          the notice — the thing you are doing stays above the thing you are
+          reading. On Saturday it has already rendered, above the grid. */}
+      {isSabbathDay && sabbathNoteAfterGrid && sabbathCard}
     </div>
   );
 }

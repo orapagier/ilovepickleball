@@ -95,10 +95,14 @@ model BusinessHour {
 /// Time-of-day rate bands (business-local minutes from midnight, 0..1440,
 /// endMin exclusive). A booking hour's rate is whichever tier its start
 /// falls in; hours outside all tiers fall back to Setting.priceCentsPerHour.
+/// `weekday` (0=Sun..6=Sat) narrows a band to a single day; null applies it to
+/// every day, and a day-specific band beats an every-day one over the same
+/// minute — that's what lets Sunday 8 AM cost more than Monday 8 AM.
 model PriceTier {
-  id                Int @id @default(autoincrement())
+  id                Int  @id @default(autoincrement())
   startMin          Int
   endMin            Int
+  weekday           Int?
   priceCentsPerHour Int
 
   @@index([startMin])
