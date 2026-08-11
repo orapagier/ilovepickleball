@@ -20,6 +20,15 @@ const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+/**
+ * Fixed, not random. A "Desktop app" client accepts any loopback port, but a
+ * "Web application" one only accepts redirect URIs registered up front — and a
+ * random port can't be registered, which fails as redirect_uri_mismatch. A
+ * constant port can be pasted into the console once and works for both.
+ * Bound to 127.0.0.1 rather than localhost so it can't land on ::1 instead.
+ */
+const PORT = Number(process.env.OAUTH_PORT || 5353);
+
 const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
 const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
 
@@ -46,8 +55,22 @@ const challenge = base64url(crypto.createHash("sha256").update(verifier).digest(
 const state = base64url(crypto.randomBytes(16));
 
 const server = http.createServer();
-server.listen(0, "127.0.0.1", () => {
-  const redirectUri = `http://127.0.0.1:${server.address().port}`;
+server.on("error", (err) => {
+  console.error(
+    err.code === "EADDRINUSE"
+      ? `Port ${PORT} is already in use — another run of this script is probably still open.\n` +
+          `Close it, or pick another port with $env:OAUTH_PORT="5354" (and register that one too).`
+      : err.message,
+  );
+  process.exit(1);
+});
+server.listen(PORT, "127.0.0.1", () => {
+  const redirectUri = `http://127.0.0.1:${PORT}`;
+  console.log(
+    `\nThis run redirects to ${redirectUri}` +
+      `\nIf you get "redirect_uri_mismatch", add exactly that URI under` +
+      `\nAuthorized redirect URIs on the OAuth client, then run this again.`,
+  );
   const url = `${AUTH_URL}?${new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

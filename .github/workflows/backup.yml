@@ -29,38 +29,55 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.check.outputs.ready == 'true'
 
-      - uses: actions/setup-node@v4
-        if: steps.check.outputs.ready == 'true'
-        with:
-          node-version: 20
-
       # Runners ship an older client than Neon runs, and pg_dump refuses to
-      # dump a server newer than itself — so install the matching major.
+      # dump a server newer than itself. Uses PostgreSQL's own repo script
+      # rather than hand-rolled apt lines, which silently left v16 in place.
       - name: Install PostgreSQL 17 client
         if: steps.check.outputs.ready == 'true'
         run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          set -eo pipefail
           sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y --no-install-recommends postgresql-client-17
-          pg_dump --version
+          # Assert rather than trust: the wrapper on PATH resolves to whichever
+          # major it likes, and a silent v16 is exactly what broke this before.
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Dump database
         if: steps.check.outputs.ready == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          # pipefail matters more than it looks: without it the pipeline below
+          # reports gzip's status, and gzip succeeds on the empty output of a
+          # failed pg_dump — producing a green run and a 20-byte "backup".
+          set -eo pipefail
           STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
           FILE="smash-zone-${STAMP}.sql.gz"
           # --no-owner/--no-acl keep the dump restorable into any database,
           # not just one with Neon's exact role names.
-          pg_dump --no-owner --no-acl "$DATABASE_URL" | gzip -9 > "$FILE"
+          /usr/lib/postgresql/17/bin/pg_dump --no-owner --no-acl "$DATABASE_URL" | gzip -9 > "$FILE"
           echo "BACKUP_FILE=$FILE" >> "$GITHUB_ENV"
           ls -lh "$FILE"
+
+      - name: Verify the dump is real
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          set -eo pipefail
+          gunzip -c "$BACKUP_FILE" > /tmp/check.sql
+          SIZE=$(stat -c%s /tmp/check.sql)
+          echo "uncompressed: ${SIZE} bytes"
+          if ! grep -q "PostgreSQL database dump" /tmp/check.sql; then
+            echo "::error::Dump has no pg_dump header — refusing to upload it."
+            exit 1
+          fi
+          if ! grep -q 'CREATE TABLE public."Booking"' /tmp/check.sql; then
+            echo "::error::Dump has no Booking table — refusing to upload it."
+            exit 1
+          fi
+          echo "tables: $(grep -c '^CREATE TABLE' /tmp/check.sql)"
+          rm /tmp/check.sql
 
       - name: Upload to Google Drive
         if: steps.check.outputs.ready == 'true'
