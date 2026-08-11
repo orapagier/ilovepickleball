@@ -16,7 +16,26 @@ export async function GET(req: NextRequest) {
       "Read-only access to courts, availability, bookings and daily operations. " +
       "All times are returned as UTC ISO strings plus a business-local label. Money is in cents.",
     auth: "Send `Authorization: Bearer <AGENT_API_KEY>` (or `x-api-key: <AGENT_API_KEY>`) on every request.",
+    recommended:
+      "If your agent only has one HTTP tool, call /api/agent/all — it returns every section below in a single response.",
     endpoints: [
+      {
+        path: "/api/agent/all",
+        description:
+          "Everything at once: config, summary, availability and bookings in one response. Defaults are kept compact for a model's context — 3 days of availability with open ranges only, and no per-slot detail unless asked.",
+        params: {
+          include: "comma-separated sections: config, summary, availability, bookings, all (default: all)",
+          date: "YYYY-MM-DD business-local anchor for every section (default: today)",
+          days: "1-14 days of availability to cover (default: 3)",
+          bookingDays: "1-365 days of bookings to cover, counted from `date` (default: 14)",
+          slots: "true to include per-slot availability detail; omitted by default — `openRanges` covers most questions",
+          onlyAvailable: "with slots=true, false to also list taken and past slots (default: true)",
+          status: "booking status filter, same values as /api/agent/bookings (default: all)",
+          courtId: "restrict availability and bookings to one court",
+          limit: "1-200 bookings (default: 100)",
+          contact: "true to include customer email and phone — omitted by default",
+        },
+      },
       {
         path: "/api/agent/config",
         description:
@@ -51,7 +70,10 @@ export async function GET(req: NextRequest) {
         path: "/api/agent/summary",
         description:
           "Today at a glance: counts by status, what needs admin action, per-court occupancy, and the next free slot on each court.",
-        params: { date: "YYYY-MM-DD business-local day to summarize (default: today)" },
+        params: {
+          date: "YYYY-MM-DD business-local day to summarize (default: today)",
+          contact: "true to include customer email and phone on the pending queue — omitted by default",
+        },
       },
     ],
   });

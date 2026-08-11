@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { agentAuthFailure, agentJson, agentError } from "@/lib/agent-auth";
-import { loadAvailability, parseISODate, parseInteger, todayISO, MAX_AVAILABILITY_DAYS } from "@/lib/agent-api";
+import { parseISODate, parseInteger, todayISO, MAX_AVAILABILITY_DAYS } from "@/lib/agent-api";
+import { buildAvailabilityPayload } from "@/lib/agent-payloads";
 import { getSettings } from "@/lib/booking-data";
-import { MAX_BOOKING_HOURS } from "@/lib/scheduling";
 
 /**
  * GET /api/agent/availability?date=YYYY-MM-DD&days=1&courtId=1&onlyAvailable=true
@@ -37,24 +37,10 @@ export async function GET(req: NextRequest) {
 
   const onlyAvailable = searchParams.get("onlyAvailable") === "true";
 
-  const result = await loadAvailability({ fromISO, days, courtId });
-  if (courtId !== null && result.courts.length === 0) {
+  const payload = await buildAvailabilityPayload({ fromISO, days, courtId, onlyAvailable });
+  if (courtId !== null && payload.courts.length === 0) {
     return agentError(`No active court with id ${courtId}.`, 404);
   }
 
-  return agentJson({
-    timezone: settings.timezone,
-    currency: settings.currency,
-    from: result.fromISO,
-    to: result.toISO,
-    slotDurationMin: settings.slotDurationMin,
-    maxBookingHours: MAX_BOOKING_HOURS,
-    courts: result.courts.map((court) => ({
-      ...court,
-      days: court.days.map((day) => ({
-        ...day,
-        slots: onlyAvailable ? day.slots.filter((s) => s.available) : day.slots,
-      })),
-    })),
-  });
+  return agentJson(payload);
 }
