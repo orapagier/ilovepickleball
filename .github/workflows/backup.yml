@@ -1,0 +1,72 @@
+name: Nightly database backup
+
+# 17:00 UTC is 01:00 in Asia/Manila — after the courts close, before anyone
+# books again, so a dump never lands mid-transaction on a busy evening.
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      # Before the secrets are configured this workflow would fail nightly and
+      # mail about it, so an unconfigured repo skips instead of failing.
+      - name: Check configuration
+        id: check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$GOOGLE_OAUTH_REFRESH_TOKEN" ]; then
+            echo "Secrets not set — see docs/backups-and-calendar.md. Skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      # Runners ship an older client than Neon runs, and pg_dump refuses to
+      # dump a server newer than itself — so install the matching major.
+      - name: Install PostgreSQL 17 client
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          pg_dump --version
+
+      - name: Dump database
+        if: steps.check.outputs.ready == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
+          FILE="smash-zone-${STAMP}.sql.gz"
+          # --no-owner/--no-acl keep the dump restorable into any database,
+          # not just one with Neon's exact role names.
+          pg_dump --no-owner --no-acl "$DATABASE_URL" | gzip -9 > "$FILE"
+          echo "BACKUP_FILE=$FILE" >> "$GITHUB_ENV"
+          ls -lh "$FILE"
+
+      - name: Upload to Google Drive
+        if: steps.check.outputs.ready == 'true'
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          BACKUP_RETENTION_DAYS: "30"
+        run: node scripts/backup-to-drive.mjs "$BACKUP_FILE"

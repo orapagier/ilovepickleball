@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "drive:auth": "node scripts/google-drive-auth.mjs",
+    "backup:upload": "node scripts/backup-to-drive.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

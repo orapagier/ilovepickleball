@@ -56,6 +56,9 @@ model Court {
   name      String
   active    Boolean @default(true)
   sortOrder Int     @default(0)
+  /// Google Calendar this court's bookings are mirrored into. Empty disables
+  /// the mirror for this court; see src/lib/google-calendar.ts.
+  googleCalendarId String @default("")
 
   bookings Booking[]
 }
@@ -126,6 +129,9 @@ model Booking {
   payMethod    PayMethod?
   expiresAt    DateTime?     @db.Timestamptz(3)
   customerNote String        @default("")
+  /// Event id in the court's Google Calendar, empty when nothing is mirrored
+  /// (sync disabled, court unmapped, or the event has been removed).
+  googleEventId String       @default("")
   createdAt    DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
 

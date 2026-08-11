@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { reconcileCalendar } from "@/lib/google-calendar";
 
 /** How stale a display-only read may let an expired hold look. Writes that
  *  depend on the sweep for correctness pass `force` and ignore this. */
@@ -54,6 +55,11 @@ async function sweep(): Promise<void> {
     },
     data: { status: "expired" },
   });
+
+  // Bulk UPDATEs can't tell us which holds just died, so the calendar mirror
+  // learns about expiries here instead — a query for stragglers, detached so
+  // Google never sits in front of a page render.
+  reconcileCalendar();
 
   // Stamped after the writes land, so a slow sweep can't let the next caller
   // through on a window that started before this one finished.

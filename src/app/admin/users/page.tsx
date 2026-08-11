@@ -2,13 +2,17 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/booking-data";
+import { getSessionUser } from "@/lib/auth-helpers";
 import { cn } from "@/lib/utils";
+import { ActionButton } from "@/components/action-button";
+import { adminDeleteUser } from "@/lib/actions/admin-actions";
+import { deleteUserMessage } from "@/lib/users";
 
 export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
   const searchParams = await props.searchParams;
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
 
-  const [users, settings] = await Promise.all([
+  const [users, settings, admin] = await Promise.all([
     prisma.user.findMany({
       where: q
         ? {
@@ -24,6 +28,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
       take: 200,
     }),
     getSettings(),
+    getSessionUser(),
   ]);
 
   const joinedFormat = new Intl.DateTimeFormat("en-US", {
@@ -80,44 +85,52 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
       ) : (
         <ul className="flex flex-col gap-2">
           {users.map((u) => (
-            <li key={u.id}>
-              <Link
-                href={`/admin/users/${u.id}`}
-                className="surface-card flex flex-wrap items-center justify-between gap-3 p-3 transition-colors hover:bg-accent"
-              >
-                <div className="min-w-48 grow">
-                  <p className="flex flex-wrap items-center gap-2 font-medium">
-                    {u.name || "Unnamed"}
-                    {u.role === "admin" && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                        Admin
-                      </span>
-                    )}
-                    {/* Google sign-in never supplies a mobile number, so an
-                        account with no phone has not completed /register and
-                        cannot book yet. */}
-                    {!u.phone && (
-                      <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">
-                        Profile incomplete
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {u.email}
-                    {u.phone ? ` · ${u.phone}` : ""} · joined {joinedFormat.format(u.createdAt)}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1 text-xs font-medium",
-                    u._count.bookings > 0
-                      ? "bg-secondary text-secondary-foreground"
-                      : "bg-muted text-muted-foreground",
+            /* The row is a plain container rather than one big Link, so the
+               delete button isn't nested inside an anchor. */
+            <li
+              key={u.id}
+              className="surface-card flex flex-wrap items-center justify-between gap-3 p-3 transition-colors hover:bg-accent"
+            >
+              <Link href={`/admin/users/${u.id}`} className="min-w-48 grow">
+                <p className="flex flex-wrap items-center gap-2 font-medium">
+                  {u.name || "Unnamed"}
+                  {u.role === "admin" && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      Admin
+                    </span>
                   )}
-                >
-                  {u._count.bookings} {u._count.bookings === 1 ? "booking" : "bookings"}
-                </span>
+                  {/* Google sign-in never supplies a mobile number, so an
+                      account with no phone has not completed /register and
+                      cannot book yet. */}
+                  {!u.phone && (
+                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">
+                      Profile incomplete
+                    </span>
+                  )}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {u.email}
+                  {u.phone ? ` · ${u.phone}` : ""} · joined {joinedFormat.format(u.createdAt)}
+                </p>
               </Link>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1 text-xs font-medium",
+                  u._count.bookings > 0 ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {u._count.bookings} {u._count.bookings === 1 ? "booking" : "bookings"}
+              </span>
+              {/* No self-delete: the action refuses it, so don't offer it. */}
+              {admin?.id !== u.id && (
+                <ActionButton
+                  action={adminDeleteUser.bind(null, u.id)}
+                  confirmMessage={deleteUserMessage(u.name || u.email, u.role === "admin", u._count.bookings)}
+                  className="shrink-0 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+                >
+                  Delete
+                </ActionButton>
+              )}
             </li>
           ))}
         </ul>

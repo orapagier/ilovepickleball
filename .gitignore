@@ -40,6 +40,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# database dumps — real customer data, never commit one
+*.sql
+*.sql.gz
+!prisma/migrations/**/*.sql
+
 /src/generated/prisma
 
 # agent tooling artifacts (not part of the app)

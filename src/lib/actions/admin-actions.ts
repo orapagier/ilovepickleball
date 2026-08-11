@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUser, type SessionUser } from "@/lib/auth-helpers";
 import { getSettings, getBusinessHours, getBlackoutDateSet, ACTIVE_STATUSES } from "@/lib/booking-data";
 import { isValidBookingRange, MAX_BOOKING_HOURS } from "@/lib/scheduling";
+import { queueCalendarSync, removeCalendarEvent } from "@/lib/google-calendar";
 
 export type ActionState = { error?: string; ok?: boolean };
 
@@ -25,6 +26,9 @@ function revalidateBookingViews(bookingId?: string) {
   revalidatePath("/admin");
   revalidatePath("/admin/bookings");
   revalidatePath("/admin/users");
+  // Every user detail page, since each lists that customer's bookings and the
+  // acting admin may be looking at any of them.
+  revalidatePath("/admin/users/[id]", "page");
   // An admin can also act on bookings from /my-bookings, which lists every
   // customer's for them.
   revalidatePath("/my-bookings");
@@ -45,6 +49,7 @@ export async function verifyBooking(bookingId: string): Promise<ActionState> {
     where: { bookingId },
     data: { status: "verified", verifiedAt: new Date(), verifiedById: admin.id },
   });
+  queueCalendarSync(bookingId);
   revalidateBookingViews(bookingId);
   return { ok: true };
 }
@@ -64,6 +69,7 @@ export async function rejectBooking(_prev: ActionState, formData: FormData): Pro
   const expiresAt = new Date(Date.now() + REFERENCE_CORRECTION_MINUTES * 60_000);
   await prisma.booking.update({ where: { id: bookingId }, data: { status: "pending_payment", expiresAt } });
   await prisma.payment.update({ where: { bookingId }, data: { status: "rejected", rejectReason: reason } });
+  queueCalendarSync(bookingId);
   revalidateBookingViews(bookingId);
   return { ok: true };
 }
@@ -75,6 +81,7 @@ export async function confirmCallBooking(bookingId: string): Promise<ActionState
     return { error: "Only bookings awaiting a call can be confirmed this way." };
   }
   await prisma.booking.update({ where: { id: bookingId }, data: { status: "confirmed", payMethod: "arranged" } });
+  queueCalendarSync(bookingId);
   revalidateBookingViews(bookingId);
   return { ok: true };
 }
@@ -84,33 +91,66 @@ export async function adminCancelBooking(bookingId: string): Promise<ActionState
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { error: "Booking not found." };
   await prisma.booking.update({ where: { id: bookingId }, data: { status: "cancelled" } });
+  queueCalendarSync(bookingId);
   revalidateBookingViews(bookingId);
   return { ok: true };
 }
 
-const DELETE_ELIGIBLE_STATUSES = ["cancelled", "expired"];
-const DELETE_AFTER_DAYS = 30;
-
-/** Permanently removes a booking, but only once it's been cancelled/expired
- *  for DELETE_AFTER_DAYS — keeps recent history around while letting old
- *  dead records be cleared out instead of accumulating forever. */
+/** Permanently removes a booking and the payment record attached to it. Any
+ *  status, no waiting period — an admin clearing test data or a duplicate
+ *  shouldn't have to cancel and then wait; the confirm dialog is the guard.
+ *  Deleting an active booking frees the slot without telling the customer,
+ *  so the UI warns before calling this on one. */
 export async function adminDeleteBooking(bookingId: string): Promise<ActionState> {
   await requireAdminOrThrow();
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { googleEventId: true, court: { select: { googleCalendarId: true } } },
+  });
   if (!booking) return { error: "Booking not found." };
-  if (!DELETE_ELIGIBLE_STATUSES.includes(booking.status)) {
-    return { error: "Only cancelled or expired bookings can be deleted." };
-  }
-  const eligibleSinceMs = Date.now() - DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
-  if (booking.updatedAt.getTime() > eligibleSinceMs) {
-    return { error: `This booking must be cancelled or expired for ${DELETE_AFTER_DAYS} days before it can be deleted.` };
-  }
+  // Awaited, unlike every other sync: once the row is gone there is nothing
+  // left to tell us which event to remove, so it can't be left to a retry.
+  await removeCalendarEvent(booking.court.googleCalendarId, booking.googleEventId);
   await prisma.$transaction([
+    // Payment's FK to Booking is required, so its row goes first.
     prisma.payment.deleteMany({ where: { bookingId } }),
     prisma.booking.delete({ where: { id: bookingId } }),
   ]);
   revalidateBookingViews(bookingId);
   return { ok: true };
+}
+
+// ---- Users ----------------------------------------------------------------
+
+/** Deletes a user along with every booking and payment of theirs. Ends in a
+ *  redirect so this works from the user's own detail page, which would
+ *  otherwise be left rendering a record that no longer exists. */
+export async function adminDeleteUser(userId: string): Promise<ActionState> {
+  const admin = await requireAdminOrThrow();
+  // Nothing else stops an admin from removing their own access mid-session,
+  // and it would take the last admin account with it.
+  if (admin.id === userId) return { error: "You cannot delete your own account." };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) return { error: "User not found." };
+
+  // Same reason as adminDeleteBooking: the event ids die with the rows.
+  const mirrored = await prisma.booking.findMany({
+    where: { customerId: userId, googleEventId: { not: "" } },
+    select: { googleEventId: true, court: { select: { googleCalendarId: true } } },
+  });
+  for (const b of mirrored) await removeCalendarEvent(b.court.googleCalendarId, b.googleEventId);
+
+  await prisma.$transaction([
+    prisma.payment.deleteMany({ where: { booking: { customerId: userId } } }),
+    // Payments this user verified as an admin belong to other people's
+    // bookings and outlive the account — drop only the attribution.
+    prisma.payment.updateMany({ where: { verifiedById: userId }, data: { verifiedById: null } }),
+    prisma.booking.deleteMany({ where: { customerId: userId } }),
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
+
+  revalidateBookingViews();
+  redirect("/admin/users");
 }
 
 /** Moves a booking to a different court/time/duration, reusing the same open-hours,
@@ -164,10 +204,27 @@ export async function rescheduleBooking(_prev: ActionState, formData: FormData):
   });
   if (conflict) return { error: "That slot is already booked. Please pick another time." };
 
+  // Moving courts means moving calendars: drop the old event first and let the
+  // sync create a fresh one. A same-court time change just patches in place.
+  const movedCourt = courtId !== booking.courtId;
+  if (movedCourt) {
+    const old = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { googleEventId: true, court: { select: { googleCalendarId: true } } },
+    });
+    if (old) await removeCalendarEvent(old.court.googleCalendarId, old.googleEventId);
+  }
   await prisma.booking.update({
     where: { id: bookingId },
-    data: { courtId, startUtc: range.start, endUtc: range.end, hours },
+    data: {
+      courtId,
+      startUtc: range.start,
+      endUtc: range.end,
+      hours,
+      ...(movedCourt ? { googleEventId: "" } : {}),
+    },
   });
+  queueCalendarSync(bookingId);
   revalidateBookingViews(bookingId);
   revalidatePath("/my-bookings");
   return { ok: true };
@@ -263,6 +320,22 @@ export async function renameCourt(_prev: ActionState, formData: FormData): Promi
   await prisma.court.update({ where: { id: courtId }, data: { name } });
   revalidatePath("/admin/courts");
   revalidatePath("/book");
+  return { ok: true };
+}
+
+/** Points a court at the Google Calendar its bookings are mirrored into.
+ *  Blank unmaps it, which stops the mirror for that court. */
+export async function setCourtCalendar(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireAdminOrThrow();
+  const courtId = Number(formData.get("courtId"));
+  const googleCalendarId = String(formData.get("googleCalendarId") ?? "").trim();
+  // Calendar ids are addresses — either the owner's email or the long
+  // ...@group.calendar.google.com form a secondary calendar gets.
+  if (googleCalendarId && !googleCalendarId.includes("@")) {
+    return { error: "That doesn't look like a calendar ID — copy it from Calendar settings." };
+  }
+  await prisma.court.update({ where: { id: courtId }, data: { googleCalendarId } });
+  revalidatePath("/admin/courts");
   return { ok: true };
 }
 

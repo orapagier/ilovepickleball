@@ -12,8 +12,6 @@ import { adminCancelBooking, adminDeleteBooking } from "@/lib/actions/admin-acti
 import { BOOKING_STATUS_LABELS, bookingStatusLabel } from "@/lib/booking-status";
 
 const EDITABLE_STATUSES = ["pending_payment", "awaiting_confirmation", "awaiting_call", "confirmed"];
-const DELETABLE_STATUSES = ["cancelled", "expired"];
-const DELETE_AFTER_DAYS = 30;
 
 const FILTERS = ["all", ...Object.keys(BOOKING_STATUS_LABELS)];
 
@@ -32,9 +30,6 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
     getActiveCourts(),
     getPriceTiers(),
   ]);
-  // Server Component: runs once per request, not subject to client re-render purity concerns.
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
   const todayISO = DateTime.now().setZone(settings.timezone).toFormat("yyyy-LL-dd");
 
   return (
@@ -69,9 +64,6 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
             timeZone: settings.timezone,
           }).format(b.startUtc);
           const editable = EDITABLE_STATUSES.includes(b.status);
-          const deletable =
-            DELETABLE_STATUSES.includes(b.status) &&
-            nowMs - b.updatedAt.getTime() > DELETE_AFTER_DAYS * 24 * 60 * 60 * 1000;
           const totalCents = computeBookingPriceCents({
             startMs: b.startUtc.getTime(),
             hours: b.hours,
@@ -100,24 +92,30 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                   />
                 )}
               </div>
-              {editable && (
-                <ActionButton
-                  action={adminCancelBooking.bind(null, b.id)}
-                  confirmMessage="Cancel this booking?"
-                  className="shrink-0 rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
-                >
-                  Cancel
-                </ActionButton>
-              )}
-              {deletable && (
+              <div className="flex shrink-0 flex-wrap items-start gap-2">
+                {editable && (
+                  <ActionButton
+                    action={adminCancelBooking.bind(null, b.id)}
+                    confirmMessage="Cancel this booking?"
+                    className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                  >
+                    Cancel
+                  </ActionButton>
+                )}
                 <ActionButton
                   action={adminDeleteBooking.bind(null, b.id)}
-                  confirmMessage="Permanently delete this booking? This cannot be undone."
-                  className="shrink-0 rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                  confirmMessage={
+                    editable
+                      ? `Permanently delete this ${bookingStatusLabel(b).toLowerCase()} booking for ${
+                          b.customer.name || b.customer.email
+                        }? The slot is freed and the customer is not notified. This cannot be undone.`
+                      : "Permanently delete this booking and its payment record? This cannot be undone."
+                  }
+                  className="rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
                 >
                   Delete
                 </ActionButton>
-              )}
+              </div>
             </li>
           );
         })}

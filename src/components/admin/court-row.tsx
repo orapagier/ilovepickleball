@@ -1,12 +1,19 @@
 "use client";
 
 import { useActionState } from "react";
-import { renameCourt, toggleCourt, type ActionState } from "@/lib/actions/admin-actions";
+import { renameCourt, setCourtCalendar, toggleCourt, type ActionState } from "@/lib/actions/admin-actions";
 import { ActionButton } from "@/components/action-button";
 import { cn } from "@/lib/utils";
 
-export function CourtRow({ court }: { court: { id: number; name: string; active: boolean } }) {
+export function CourtRow({
+  court,
+  calendarSyncConfigured,
+}: {
+  court: { id: number; name: string; active: boolean; googleCalendarId: string };
+  calendarSyncConfigured: boolean;
+}) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(renameCourt, {});
+  const [calState, calAction, calPending] = useActionState<ActionState, FormData>(setCourtCalendar, {});
 
   return (
     <li className="surface-card flex flex-wrap items-center gap-3 p-4">
@@ -44,6 +51,37 @@ export function CourtRow({ court }: { court: { id: number; name: string; active:
       </ActionButton>
 
       {state?.error && <span className="text-xs text-destructive">{state.error}</span>}
+
+      {/* Hidden until a service account exists, so the field can't look like
+          it's doing something when nothing is wired up to read it. */}
+      {calendarSyncConfigured && (
+        <form action={calAction} className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-3">
+          <input type="hidden" name="courtId" value={court.id} />
+          <label htmlFor={`cal-${court.id}`} className="text-xs font-medium text-muted-foreground">
+            Google Calendar ID
+          </label>
+          <input
+            id={`cal-${court.id}`}
+            name="googleCalendarId"
+            defaultValue={court.googleCalendarId}
+            placeholder="…@group.calendar.google.com — blank to stop mirroring"
+            className="min-w-64 flex-1 rounded-lg border border-input bg-background px-2 py-1 font-mono text-xs"
+          />
+          <button
+            type="submit"
+            disabled={calPending}
+            className="rounded-full border border-border px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+          >
+            {calPending ? "…" : "Save"}
+          </button>
+          {court.googleCalendarId ? (
+            <span className="text-xs text-success">Mirroring</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">Not mirrored</span>
+          )}
+          {calState?.error && <span className="w-full text-xs text-destructive">{calState.error}</span>}
+        </form>
+      )}
     </li>
   );
 }

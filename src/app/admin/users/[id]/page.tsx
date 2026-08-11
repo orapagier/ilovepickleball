@@ -3,10 +3,14 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSettings, getPriceTiers } from "@/lib/booking-data";
+import { getSessionUser } from "@/lib/auth-helpers";
 import { formatMoney } from "@/lib/format";
 import { computeBookingPriceCents } from "@/lib/pricing";
 import { PAY_METHOD_LABELS } from "@/lib/pay-method";
 import { cn } from "@/lib/utils";
+import { ActionButton } from "@/components/action-button";
+import { adminDeleteBooking, adminDeleteUser } from "@/lib/actions/admin-actions";
+import { deleteUserMessage } from "@/lib/users";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Pending payment",
@@ -24,7 +28,7 @@ const HONOURED_STATUSES = ["confirmed"];
 export default async function AdminUserDetailPage(props: PageProps<"/admin/users/[id]">) {
   const { id } = await props.params;
 
-  const [user, settings, tiers] = await Promise.all([
+  const [user, settings, tiers, admin] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: {
@@ -36,6 +40,7 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
     }),
     getSettings(),
     getPriceTiers(),
+    getSessionUser(),
   ]);
   if (!user) notFound();
 
@@ -98,12 +103,29 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
           <ChevronLeft className="size-4" />
           Registered users
         </Link>
-        <h1 className="mt-2 flex flex-wrap items-center gap-3 text-3xl font-bold">
-          {user.name || "Unnamed"}
-          {user.role === "admin" && (
-            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Admin</span>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="flex flex-wrap items-center gap-3 text-3xl font-bold">
+            {user.name || "Unnamed"}
+            {user.role === "admin" && (
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Admin</span>
+            )}
+          </h1>
+          {/* No self-delete: the action refuses it, so don't offer it. */}
+          {admin?.id !== user.id && (
+            <ActionButton
+              action={adminDeleteUser.bind(null, user.id)}
+              confirmMessage={deleteUserMessage(
+                user.name || user.email,
+                user.role === "admin",
+                user.bookings.length,
+              )}
+              pendingLabel="Deleting…"
+              className="rounded-full bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20"
+            >
+              Delete user
+            </ActionButton>
           )}
-        </h1>
+        </div>
       </div>
 
       <div className="surface-card p-5">
@@ -148,18 +170,27 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
                   </p>
                   {b.customerNote && <p className="mt-1 text-sm italic text-muted-foreground">“{b.customerNote}”</p>}
                 </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1 text-xs font-medium",
-                    b.status === "cancelled" || b.status === "expired"
-                      ? "bg-destructive/10 text-destructive"
-                      : b.status === "confirmed"
-                        ? "bg-success/10 text-success"
-                        : "bg-secondary text-secondary-foreground",
-                  )}
-                >
-                  {STATUS_LABELS[b.status] ?? b.status}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-medium",
+                      b.status === "cancelled" || b.status === "expired"
+                        ? "bg-destructive/10 text-destructive"
+                        : b.status === "confirmed"
+                          ? "bg-success/10 text-success"
+                          : "bg-secondary text-secondary-foreground",
+                    )}
+                  >
+                    {STATUS_LABELS[b.status] ?? b.status}
+                  </span>
+                  <ActionButton
+                    action={adminDeleteBooking.bind(null, b.id)}
+                    confirmMessage="Permanently delete this booking and its payment record? This cannot be undone."
+                    className="rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
+                  >
+                    Delete
+                  </ActionButton>
+                </div>
               </li>
             ))}
           </ul>

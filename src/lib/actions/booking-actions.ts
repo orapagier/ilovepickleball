@@ -15,6 +15,7 @@ import {
 } from "@/lib/booking-data";
 import { isValidBookingRange, isFree, MAX_ADVANCE_DAYS, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 import { computeBookingPriceCents } from "@/lib/pricing";
+import { queueCalendarSync } from "@/lib/google-calendar";
 
 export type ActionState = { error?: string; ok?: boolean };
 
@@ -104,6 +105,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
     return { error: "That slot was just taken. Please pick another time." };
   }
 
+  queueCalendarSync(booking.id);
   revalidatePath("/my-bookings");
   redirect(`/book/${booking.id}`);
 }
@@ -165,6 +167,7 @@ export async function submitPayment(_prev: ActionState, formData: FormData): Pro
     data: { status: "awaiting_confirmation", payMethod },
   });
 
+  queueCalendarSync(booking.id);
   revalidatePath(`/book/${booking.id}`);
   revalidatePath("/my-bookings");
   return { ok: true };
@@ -183,6 +186,7 @@ export async function cancelBooking(bookingId: string): Promise<ActionState> {
   }
 
   await prisma.booking.update({ where: { id: bookingId }, data: { status: "cancelled" } });
+  queueCalendarSync(bookingId);
   revalidatePath("/my-bookings");
   revalidatePath(`/book/${bookingId}`);
   return { ok: true };
