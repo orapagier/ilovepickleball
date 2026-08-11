@@ -86,7 +86,7 @@ export default async function Home() {
       </section>
 
       <section id="details" className="mx-auto max-w-6xl px-4 py-16">
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <article className="surface-card p-6">
             <Clock className="size-5 text-primary" />
             <h2 className="mt-4 text-lg font-semibold">Opening hours</h2>
@@ -97,37 +97,6 @@ export default async function Home() {
                 <li>Hours not set yet.</li>
               )}
             </ul>
-          </article>
-
-          <article className="surface-card p-6">
-            <Wallet className="size-5 text-primary" />
-            <h2 className="mt-4 text-lg font-semibold">Court rates</h2>
-            {rateGroups.length > 0 ? (
-              <div className="mt-3 space-y-3">
-                {rateGroups.map((group) => (
-                  <div key={group.label}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-foreground">{group.label}</p>
-                    <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
-                      {group.tiers.map((t) => (
-                        <li key={`${t.startMin}-${t.endMin}`}>
-                          {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
-                          {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-                {/* A day-specific band overrides the every-day one, so say which wins
-                    rather than leaving two rates for the same hour unexplained. */}
-                {rateGroups.length > 1 && (
-                  <p className="text-xs text-muted-foreground">A day’s own rate applies instead of the every-day rate.</p>
-                )}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate, every day
-              </p>
-            )}
           </article>
 
           <article className="surface-card p-6">
@@ -145,6 +114,45 @@ export default async function Home() {
             <p className="mt-2 text-sm text-muted-foreground">{settings.address || "Tagum City, Davao del Norte"}</p>
           </article>
         </div>
+
+        {/* Full width, not a peer of the short cards above — the daily bands are far
+            wordier than any of them and a one-quarter column left it lopsided. */}
+        <article className="mt-6 surface-card p-6">
+          <div className="flex items-center gap-2">
+            <Wallet className="size-5 text-primary" />
+            <h2 className="text-lg font-semibold">Court rates</h2>
+          </div>
+          {rateGroups.length > 0 ? (
+            <>
+              <div className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
+                {rateGroups.map((group) => (
+                  <div key={group.label}>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-foreground">{group.label}</p>
+                    <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
+                      {group.tiers.map((t) => (
+                        <li key={`${t.startMin}-${t.endMin}`}>
+                          {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
+                          {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              {/* A day-specific band overrides the every-day one, so say which wins
+                  rather than leaving two rates for the same hour unexplained. */}
+              {rateGroups.length > 1 && (
+                <p className="mt-5 text-xs text-muted-foreground">
+                  A day’s own rate applies instead of the every-day rate.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate, every day
+            </p>
+          )}
+        </article>
 
         <div className="mt-6 surface-card p-6">
           <h2 className="text-lg font-semibold">Contact</h2>
