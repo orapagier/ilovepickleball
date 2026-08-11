@@ -3,6 +3,28 @@ export type PriceTier = { startMin: number; endMin: number; weekday: number | nu
 
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The day a tier applies to, as a heading — "Every day" for an un-pinned band. */
+export function weekdayLabel(weekday: number | null): string {
+  return weekday === null ? "Every day" : (WEEKDAY_NAMES[weekday] ?? "Every day");
+}
+
+/**
+ * Tiers bucketed by the day they apply to, for display: the every-day band
+ * first (it is the general case), then Sunday through Saturday, with each
+ * group's bands in start-time order. Empty days are dropped.
+ */
+export function groupTiersByWeekday(tiers: PriceTier[]): { label: string; tiers: PriceTier[] }[] {
+  const days: (number | null)[] = [null, 0, 1, 2, 3, 4, 5, 6];
+  return days
+    .map((weekday) => ({
+      label: weekdayLabel(weekday),
+      tiers: tiers.filter((t) => t.weekday === weekday).sort((a, b) => a.startMin - b.startMin),
+    }))
+    .filter((group) => group.tiers.length > 0);
+}
+
 /** Business-local minutes-from-midnight for an instant, via Intl (works in both server and client code, no timezone lib needed). */
 export function localMinuteOfDay(date: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {

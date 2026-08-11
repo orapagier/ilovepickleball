@@ -6,7 +6,7 @@ import { getSettings, getActiveCourts, getBusinessHours, getPriceTiers } from "@
 import { getSessionUser } from "@/lib/auth-helpers";
 import { summarizeHours, closedWindowLabel } from "@/lib/hours-summary";
 import { formatMoney, formatMinuteOfDay } from "@/lib/format";
-import { minTierRateCents } from "@/lib/pricing";
+import { minTierRateCents, groupTiersByWeekday } from "@/lib/pricing";
 
 const HERO_IMAGE_PATH = path.join(process.cwd(), "public", "hero-court.jpg");
 
@@ -22,6 +22,7 @@ export default async function Home() {
   const closedLabel = closedWindowLabel(hours);
   const hasHeroImage = fs.existsSync(HERO_IMAGE_PATH);
   const startingRateCents = minTierRateCents(tiers, settings.priceCentsPerHour);
+  const rateGroups = groupTiersByWeekday(tiers);
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -101,18 +102,32 @@ export default async function Home() {
           <article className="surface-card p-6">
             <Wallet className="size-5 text-primary" />
             <h2 className="mt-4 text-lg font-semibold">Court rates</h2>
-            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-              {tiers.length > 0 ? (
-                tiers.map((t) => (
-                  <li key={t.startMin}>
-                    {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
-                    {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
-                  </li>
-                ))
-              ) : (
-                <li>{formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate</li>
-              )}
-            </ul>
+            {rateGroups.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                {rateGroups.map((group) => (
+                  <div key={group.label}>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-foreground">{group.label}</p>
+                    <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
+                      {group.tiers.map((t) => (
+                        <li key={`${t.startMin}-${t.endMin}`}>
+                          {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
+                          {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {/* A day-specific band overrides the every-day one, so say which wins
+                    rather than leaving two rates for the same hour unexplained. */}
+                {rateGroups.length > 1 && (
+                  <p className="text-xs text-muted-foreground">A day’s own rate applies instead of the every-day rate.</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate, every day
+              </p>
+            )}
           </article>
 
           <article className="surface-card p-6">
