@@ -24,6 +24,7 @@ import {
 } from "@/lib/scheduling";
 import { computeBookingPriceCents } from "@/lib/pricing";
 import { queueCalendarSync } from "@/lib/google-calendar";
+import { resolveGroupAnchorId } from "@/lib/booking-group";
 
 export type ActionState = { error?: string; ok?: boolean };
 
@@ -152,13 +153,27 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
     return { error: failure };
   }
 
+  /* Bookings made in the same submit are tied together under the first one's
+     id, so a multi-slot pick pays with one reference number instead of one
+     per booking — see submitPayment below and the `groupId` comment on the
+     Booking model. The first booking's own groupId stays null; it's the
+     anchor other members point at. */
+  if (createdIds.length > 1) {
+    await prisma.booking.updateMany({
+      where: { id: { in: createdIds.slice(1) } },
+      data: { groupId: createdIds[0] },
+    });
+  }
+
   for (const id of createdIds) queueCalendarSync(id);
   revalidatePath("/my-bookings");
 
-  /* One booking still lands on its own payment page, exactly as before. A
-     split selection has no single page to land on — each booking is paid for
-     separately — so it goes to the list that holds all of them. */
-  redirect(createdIds.length === 1 ? `/book/${createdIds[0]}` : "/my-bookings");
+  /* Land on whichever created booking can actually take a payment, so the
+     reference-number form is what the customer sees next — not a "call us"
+     notice for an unrelated booking that happened to be created first. */
+  const landingIdx = ranges.findIndex((r) => r.run.hours < CALL_REQUIRED_HOURS);
+  const landingId = landingIdx >= 0 ? createdIds[landingIdx] : createdIds[0];
+  redirect(`/book/${landingId}`);
 }
 
 export async function submitPayment(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -186,40 +201,60 @@ export async function submitPayment(_prev: ActionState, formData: FormData): Pro
   }
 
   const [settings, tiers] = await Promise.all([getSettings(), getPriceTiers()]);
-  const amountCents = computeBookingPriceCents({
-    startMs: booking.startUtc.getTime(),
-    hours: booking.hours,
-    slotDurationMin: settings.slotDurationMin,
-    tz: settings.timezone,
-    tiers,
-    fallbackCentsPerHour: settings.priceCentsPerHour,
-  });
 
-  await prisma.payment.upsert({
-    where: { bookingId: booking.id },
-    update: {
-      referenceNumber: reference,
-      amountCents,
-      status: "submitted",
-      submittedAt: new Date(),
-      verifiedById: null,
-      verifiedAt: null,
-      rejectReason: "",
-    },
-    create: {
-      bookingId: booking.id,
-      referenceNumber: reference,
-      amountCents,
-      status: "submitted",
+  /* Whichever booking in the group this form was shown for, the same
+     reference number pays for every court/time the customer ticked in that
+     checkout — not just this one row. Each still gets its own Payment row
+     (so every existing per-booking view, admin queue included, keeps
+     working), but all of them share this reference and submit together. */
+  const anchorId = resolveGroupAnchorId(booking);
+  const groupBookings = await prisma.booking.findMany({
+    where: {
+      customerId: user.id,
+      status: "pending_payment",
+      OR: [{ id: anchorId }, { groupId: anchorId }],
     },
   });
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: { status: "awaiting_confirmation", payMethod },
-  });
 
-  queueCalendarSync(booking.id);
-  revalidatePath(`/book/${booking.id}`);
+  await Promise.all(
+    groupBookings.map(async (b) => {
+      const amountCents = computeBookingPriceCents({
+        startMs: b.startUtc.getTime(),
+        hours: b.hours,
+        slotDurationMin: settings.slotDurationMin,
+        tz: settings.timezone,
+        tiers,
+        fallbackCentsPerHour: settings.priceCentsPerHour,
+      });
+
+      await prisma.payment.upsert({
+        where: { bookingId: b.id },
+        update: {
+          referenceNumber: reference,
+          amountCents,
+          status: "submitted",
+          submittedAt: new Date(),
+          verifiedById: null,
+          verifiedAt: null,
+          rejectReason: "",
+        },
+        create: {
+          bookingId: b.id,
+          referenceNumber: reference,
+          amountCents,
+          status: "submitted",
+        },
+      });
+      await prisma.booking.update({
+        where: { id: b.id },
+        data: { status: "awaiting_confirmation", payMethod },
+      });
+
+      queueCalendarSync(b.id);
+      revalidatePath(`/book/${b.id}`);
+    }),
+  );
+
   revalidatePath("/my-bookings");
   return { ok: true };
 }

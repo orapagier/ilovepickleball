@@ -6,6 +6,7 @@ import { reapExpiredBookings } from "@/lib/expiry";
 import { formatMoney } from "@/lib/format";
 import { computeBookingPriceCents } from "@/lib/pricing";
 import { PAY_METHOD_LABELS } from "@/lib/pay-method";
+import { resolveGroupAnchorId } from "@/lib/booking-group";
 import { Countdown } from "@/components/booking/countdown";
 import { PaymentPanel } from "@/components/booking/payment-panel";
 import { CancelButton } from "@/components/booking/cancel-button";
@@ -24,23 +25,39 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
   if (!booking || booking.customerId !== user.id) notFound();
 
   const [settings, tiers] = await Promise.all([getSettings(), getPriceTiers()]);
-  const totalCents = computeBookingPriceCents({
-    startMs: booking.startUtc.getTime(),
-    hours: booking.hours,
-    slotDurationMin: settings.slotDurationMin,
-    tz: settings.timezone,
-    tiers,
-    fallbackCentsPerHour: settings.priceCentsPerHour,
-  });
+  const priceOf = (b: { startUtc: Date; hours: number }) =>
+    computeBookingPriceCents({
+      startMs: b.startUtc.getTime(),
+      hours: b.hours,
+      slotDurationMin: settings.slotDurationMin,
+      tz: settings.timezone,
+      tiers,
+      fallbackCentsPerHour: settings.priceCentsPerHour,
+    });
+  const totalCents = priceOf(booking);
 
-  const dateLabel = new Intl.DateTimeFormat("en-US", {
+  /* When this booking was created alongside others in the same multi-slot
+     checkout, one reference number pays for all of them (see submitPayment) —
+     so the pay step here has to show the combined total and list what else
+     it covers, not just this one court/time. */
+  const anchorId = resolveGroupAnchorId(booking);
+  const otherGroupBookings = await prisma.booking.findMany({
+    where: { customerId: user.id, id: { not: booking.id }, OR: [{ id: anchorId }, { groupId: anchorId }] },
+    include: { court: true },
+    orderBy: { startUtc: "asc" },
+  });
+  const pendingSiblings = otherGroupBookings.filter((b) => b.status === "pending_payment");
+  const groupTotalCents = totalCents + pendingSiblings.reduce((sum, b) => sum + priceOf(b), 0);
+
+  const dateFmt = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     timeZone: settings.timezone,
-  }).format(booking.startUtc);
+  });
+  const dateLabel = dateFmt.format(booking.startUtc);
 
   const payMethodLabel = booking.payMethod ? (PAY_METHOD_LABELS[booking.payMethod] ?? booking.payMethod) : "";
 
@@ -70,10 +87,41 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
               <div>
                 <h2 className="mb-1 font-semibold">Pay to reserve</h2>
                 <p className="text-sm text-muted-foreground">
-                  Send {formatMoney(totalCents, settings.currency)}, then submit your reference number below.
+                  {pendingSiblings.length > 0
+                    ? `You picked ${pendingSiblings.length + 1} bookings in one go, so one reference number covers all of them — send ${formatMoney(groupTotalCents, settings.currency)} total, then submit it below.`
+                    : `Send ${formatMoney(totalCents, settings.currency)}, then submit your reference number below.`}
                 </p>
               </div>
             )}
+
+            {pendingSiblings.length > 0 && (
+              <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  This payment covers
+                </p>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  <li className="flex items-center justify-between gap-3">
+                    <span className="truncate">
+                      {booking.court.name} — {dateLabel}
+                    </span>
+                    <span className="shrink-0 font-medium">{formatMoney(totalCents, settings.currency)}</span>
+                  </li>
+                  {pendingSiblings.map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-3">
+                      <span className="truncate">
+                        {b.court.name} — {dateFmt.format(b.startUtc)}
+                      </span>
+                      <span className="shrink-0 font-medium">{formatMoney(priceOf(b), settings.currency)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2.5 flex items-center justify-between gap-3 border-t border-border pt-2.5 text-sm font-semibold">
+                  <span>Total</span>
+                  <span>{formatMoney(groupTotalCents, settings.currency)}</span>
+                </p>
+              </div>
+            )}
+
             {booking.expiresAt && <Countdown expiresAtMs={booking.expiresAt.getTime()} />}
             <PaymentPanel
               bookingId={booking.id}

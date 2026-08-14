@@ -137,9 +137,20 @@ model Booking {
 
   payment Payment?
 
+  /// Ties bookings created together in one multi-slot checkout to the first
+  /// one created (which stays null here itself) — so a customer who ticks
+  /// several courts/times in one submit pays once with one reference number
+  /// instead of once per booking. Null means "not part of a group" (either a
+  /// solo booking, or the group's own anchor). See resolveGroupAnchorId in
+  /// src/lib/booking-group.ts for how this is read back.
+  groupId String?
+  group        Booking?  @relation("BookingGroup", fields: [groupId], references: [id])
+  groupMembers Booking[] @relation("BookingGroup")
+
   @@index([courtId, startUtc, endUtc])
   @@index([status])
   @@index([customerId])
+  @@index([groupId])
 }
 
 /// At most one payment record per booking (upserted as the customer resubmits).

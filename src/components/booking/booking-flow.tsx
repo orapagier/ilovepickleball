@@ -560,8 +560,9 @@ export function BookingFlow({
               <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
                 <Info className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>
-                  Your picks aren&rsquo;t all back to back on one court, so they become {runs.length} separate bookings
-                  — each one is paid for on its own from My bookings.
+                  Your picks aren&rsquo;t all back to back on one court, so they become {runs.length} separate
+                  bookings — you&rsquo;ll pay for them together with one reference number (any run of{" "}
+                  {CALL_REQUIRED_HOURS}+ hours is still arranged by phone instead).
                 </span>
               </p>
             )}
