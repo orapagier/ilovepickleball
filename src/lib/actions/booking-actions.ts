@@ -13,7 +13,15 @@ import {
   getPriceTiers,
   ACTIVE_STATUSES,
 } from "@/lib/booking-data";
-import { isValidBookingRange, isFree, MAX_ADVANCE_DAYS, MAX_BOOKING_HOURS } from "@/lib/scheduling";
+import {
+  isValidBookingRange,
+  isFree,
+  groupSlotsIntoRuns,
+  MAX_ADVANCE_DAYS,
+  MAX_BOOKING_HOURS,
+  MAX_SELECTED_SLOTS,
+  type SlotRun,
+} from "@/lib/scheduling";
 import { computeBookingPriceCents } from "@/lib/pricing";
 import { queueCalendarSync } from "@/lib/google-calendar";
 
@@ -23,6 +31,28 @@ export type ActionState = { error?: string; ok?: boolean };
 const CALL_REQUIRED_HOURS = 4;
 const REFERENCE_PAY_METHODS = ["gcash", "bdo", "qrph"] as const;
 
+/** The grid posts its ticked cells as JSON. Anything malformed is rejected
+ *  outright rather than partially honoured — a half-read selection would book
+ *  hours the customer never picked. */
+function parseSlotPicks(raw: string): { courtId: number; startMs: number }[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  const picks: { courtId: number; startMs: number }[] = [];
+  for (const item of parsed) {
+    if (typeof item !== "object" || item === null) return null;
+    const { courtId, startMs } = item as Record<string, unknown>;
+    if (!Number.isInteger(courtId) || !Number.isFinite(startMs)) return null;
+    picks.push({ courtId: courtId as number, startMs: startMs as number });
+  }
+  return picks;
+}
+
 export async function createBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) redirect("/signin?callbackUrl=/book");
@@ -30,16 +60,13 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
   const { complete: profileComplete } = await getProfileCompletion(user.id);
   if (!profileComplete) redirect("/register?callbackUrl=/book");
 
-  const courtId = Number(formData.get("courtId"));
-  const startMs = Number(formData.get("startMs"));
-  const hours = Number(formData.get("hours"));
   const note = String(formData.get("note") ?? "").slice(0, 500);
+  const picks = parseSlotPicks(String(formData.get("slots") ?? ""));
 
-  if (!Number.isFinite(courtId) || !Number.isFinite(startMs)) {
-    return { error: "Pick a court and a time slot first." };
-  }
-  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_BOOKING_HOURS) {
-    return { error: "Choose a valid number of hours." };
+  if (!picks) return { error: "That selection could not be read. Please pick your slots again." };
+  if (picks.length === 0) return { error: "Pick at least one slot first." };
+  if (picks.length > MAX_SELECTED_SLOTS) {
+    return { error: `You can book at most ${MAX_SELECTED_SLOTS} slots at a time.` };
   }
 
   const settings = await getSettings();
@@ -47,67 +74,91 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
   const blackouts = await getBlackoutDateSet();
   const now = new Date();
 
-  const range = isValidBookingRange({
-    tz: settings.timezone,
-    slotDurationMin: settings.slotDurationMin,
-    leadMinutes: settings.leadMinutes,
-    hours: hoursRows,
-    blackouts,
-    startMs,
-    durationHours: hours,
-    now,
-  });
-  if (!range) {
-    return { error: "That time is no longer a valid open slot. Please pick another." };
+  const runs = groupSlotsIntoRuns(picks, settings.slotDurationMin);
+  if (runs.some((run) => run.hours > MAX_BOOKING_HOURS)) {
+    return { error: `A court can only be booked for ${MAX_BOOKING_HOURS} hours in a row.` };
   }
 
   const maxISO = DateTime.fromJSDate(now, { zone: settings.timezone }).plus({ days: MAX_ADVANCE_DAYS }).toFormat("yyyy-LL-dd");
-  const startISO = DateTime.fromJSDate(range.start, { zone: settings.timezone }).toFormat("yyyy-LL-dd");
-  if (startISO > maxISO) {
-    return { error: `Bookings can only be made up to ${MAX_ADVANCE_DAYS} days in advance.` };
-  }
 
-  const busy = await getBusyIntervals(courtId, range.start, range.end);
-  if (!isFree(range.start, range.end, busy)) {
-    return { error: "That slot was just taken. Please pick another time." };
+  /* Validate the whole selection before creating any of it, so an unbookable
+     pick fails the request outright instead of leaving the customer with half
+     their evening reserved and half of it gone. */
+  const ranges: { run: SlotRun; start: Date; end: Date }[] = [];
+  for (const run of runs) {
+    const range = isValidBookingRange({
+      tz: settings.timezone,
+      slotDurationMin: settings.slotDurationMin,
+      leadMinutes: settings.leadMinutes,
+      hours: hoursRows,
+      blackouts,
+      startMs: run.startMs,
+      durationHours: run.hours,
+      now,
+    });
+    if (!range) {
+      return { error: "One of those times is no longer a valid open slot. Please pick again." };
+    }
+    const startISO = DateTime.fromJSDate(range.start, { zone: settings.timezone }).toFormat("yyyy-LL-dd");
+    if (startISO > maxISO) {
+      return { error: `Bookings can only be made up to ${MAX_ADVANCE_DAYS} days in advance.` };
+    }
+    ranges.push({ run, start: range.start, end: range.end });
   }
 
   const expiresAt = new Date(now.getTime() + settings.holdMinutes * 60_000);
-  const requiresCall = hours >= CALL_REQUIRED_HOURS;
+  const createdIds: string[] = [];
 
-  const booking = await prisma.booking.create({
-    data: {
-      courtId,
-      customerId: user.id,
-      startUtc: range.start,
-      endUtc: range.end,
-      hours,
-      status: requiresCall ? "awaiting_call" : "pending_payment",
-      expiresAt,
-      customerNote: note,
-    },
-  });
+  const failure = await (async (): Promise<string | null> => {
+    for (const { run, start, end } of ranges) {
+      const busy = await getBusyIntervals(run.courtId, start, end);
+      if (!isFree(start, end, busy)) return "One of those slots was just taken. Please pick again.";
 
-  // Race guard: another request may have booked the same court/time between
-  // our availability read and this insert.
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      id: { not: booking.id },
-      courtId,
-      status: { in: [...ACTIVE_STATUSES] },
-      startUtc: { lt: range.end },
-      endUtc: { gt: range.start },
-    },
-    select: { id: true },
-  });
-  if (conflict) {
-    await prisma.booking.delete({ where: { id: booking.id } });
-    return { error: "That slot was just taken. Please pick another time." };
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: run.courtId,
+          customerId: user.id,
+          startUtc: start,
+          endUtc: end,
+          hours: run.hours,
+          status: run.hours >= CALL_REQUIRED_HOURS ? "awaiting_call" : "pending_payment",
+          expiresAt,
+          customerNote: note,
+        },
+      });
+      createdIds.push(booking.id);
+
+      // Race guard: another request may have booked the same court/time between
+      // our availability read and this insert. Our own new rows are excluded —
+      // a multi-slot selection legitimately holds several at once.
+      const conflict = await prisma.booking.findFirst({
+        where: {
+          id: { notIn: createdIds },
+          courtId: run.courtId,
+          status: { in: [...ACTIVE_STATUSES] },
+          startUtc: { lt: end },
+          endUtc: { gt: start },
+        },
+        select: { id: true },
+      });
+      if (conflict) return "One of those slots was just taken. Please pick again.";
+    }
+    return null;
+  })();
+
+  if (failure) {
+    // Nothing here has a payment row yet, so the holds can just be dropped.
+    if (createdIds.length > 0) await prisma.booking.deleteMany({ where: { id: { in: createdIds } } });
+    return { error: failure };
   }
 
-  queueCalendarSync(booking.id);
+  for (const id of createdIds) queueCalendarSync(id);
   revalidatePath("/my-bookings");
-  redirect(`/book/${booking.id}`);
+
+  /* One booking still lands on its own payment page, exactly as before. A
+     split selection has no single page to land on — each booking is paid for
+     separately — so it goes to the list that holds all of them. */
+  redirect(createdIds.length === 1 ? `/book/${createdIds[0]}` : "/my-bookings");
 }
 
 export async function submitPayment(_prev: ActionState, formData: FormData): Promise<ActionState> {

@@ -7,6 +7,10 @@ export const MAX_ADVANCE_DAYS = 30;
  *  when an admin reschedules one, and advertised by the availability APIs. */
 export const MAX_BOOKING_HOURS = 6;
 
+/** Most slots one customer can tick in a single pass of the grid. Bounds the
+ *  per-request validation work; the per-court limit is `MAX_BOOKING_HOURS`. */
+export const MAX_SELECTED_SLOTS = 24;
+
 export type BusinessHourRow = { weekday: number; openMin: number; closeMin: number };
 export type BusyInterval = { start: Date; end: Date };
 /** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart from one still awaiting payment/call/verification. */
@@ -51,6 +55,47 @@ function slotStatus(params: {
   if (busy.some((b) => !b.confirmed && overlaps(start, end, b.start, b.end))) return "pending";
   if (startDt < leadCutoff) return "past";
   return "available";
+}
+
+/** A back-to-back run of slots on one court: exactly one Booking row, whose
+ *  `hours` column has always meant "this many slots in a row". */
+export type SlotRun = { courtId: number; startMs: number; hours: number };
+
+/**
+ * Collapse individually-picked slots into the fewest bookings that represent
+ * them. Adjacent slots on the same court merge; a gap, or a different court,
+ * starts a new run. Duplicates are dropped, so a double-submitted pick can't
+ * turn into two overlapping bookings. Shared by the grid and the server action
+ * so both agree on what "3 slots" means before and after the round trip.
+ */
+export function groupSlotsIntoRuns(
+  slots: { courtId: number; startMs: number }[],
+  slotDurationMin: number,
+): SlotRun[] {
+  const seen = new Set<string>();
+  const sorted = slots
+    .filter((s) => {
+      const key = `${s.courtId}:${s.startMs}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.courtId - b.courtId || a.startMs - b.startMs);
+
+  const runs: SlotRun[] = [];
+  for (const slot of sorted) {
+    const last = runs[runs.length - 1];
+    if (
+      last &&
+      last.courtId === slot.courtId &&
+      last.startMs + last.hours * slotDurationMin * 60_000 === slot.startMs
+    ) {
+      last.hours += 1;
+    } else {
+      runs.push({ courtId: slot.courtId, startMs: slot.startMs, hours: 1 });
+    }
+  }
+  return runs;
 }
 
 /** Luxon weekday is 1=Mon..7=Sun; our model is 0=Sun..6=Sat. */

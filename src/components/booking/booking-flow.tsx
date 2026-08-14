@@ -2,17 +2,12 @@
 
 import { Fragment, useEffect, useRef, useState, useActionState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Info, Sunset } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Info, Lock, Sunset } from "lucide-react";
 import { createBooking, type ActionState } from "@/lib/actions/booking-actions";
 import { SignInButton } from "@/components/auth-buttons";
 import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay, dateStripParts } from "@/lib/format";
-import {
-  computeBookingPriceCents,
-  localMinuteOfDay,
-  localWeekday,
-  tierRateForMinute,
-  type PriceTier,
-} from "@/lib/pricing";
+import { groupSlotsIntoRuns, MAX_SELECTED_SLOTS } from "@/lib/scheduling";
+import { localMinuteOfDay, localWeekday, tierRateForMinute, type PriceTier } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
@@ -34,6 +29,16 @@ type Court = { id: number; name: string };
 type SlotStatus = "available" | "confirmed" | "pending" | "past";
 type Slot = { date: string; startMs: number; label: string; available: boolean; status: SlotStatus };
 
+/** A ticked cell, keyed the way the selection set holds it. */
+function pickKey(courtId: number, startMs: number): string {
+  return `${courtId}:${startMs}`;
+}
+
+function parsePickKey(key: string): { courtId: number; startMs: number } {
+  const [courtId, startMs] = key.split(":");
+  return { courtId: Number(courtId), startMs: Number(startMs) };
+}
+
 /** `iso` dates are plain YYYY-MM-DD business-local calendar dates — do all
  * arithmetic on them as UTC-midnight so a date never shifts by a day. */
 function addDaysISO(iso: string, days: number): string {
@@ -48,12 +53,10 @@ function daysBetweenISO(fromISO: string, toISO: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-/** "8-9 AM" / "11 AM-12 PM" — the meridiem is only repeated when it changes
- * mid-slot, which keeps the time column narrow on a phone. */
+/** "08:00 AM - 09:00 AM" — the full pair, which the wide time column has room
+ * for, so a row reads as a span rather than as a start time. */
 function slotRangeLabel(startMin: number, endMin: number): string {
-  const start = formatMinuteOfDay(startMin);
-  const end = formatMinuteOfDay(endMin);
-  return start.slice(-2) === end.slice(-2) ? `${start.slice(0, -3)}-${end}` : `${start}-${end}`;
+  return `${formatMinuteOfDay(startMin)} - ${formatMinuteOfDay(endMin)}`;
 }
 
 /** Day parts, matching how people talk about court times rather than any
@@ -65,24 +68,13 @@ function dayPart(startMin: number): string {
   return "Evening";
 }
 
-const SLOT_STATUS_LABEL: Record<SlotStatus, string> = {
-  available: "Open",
+/** What a cell says when it can't be ticked. Each state is a word rather than a
+ *  colour, so the grid reads without a legend to decode it. */
+const LOCKED_LABEL: Record<Exclude<SlotStatus, "available">, string> = {
   confirmed: "Booked",
-  pending: "Pending",
-  past: "Past",
+  pending: "On hold",
+  past: "Closed",
 };
-
-/* Traffic-light reading of the grid: green is yours to take, red is gone,
-   amber is on its way to red. Selected stays the brand colour so the one slot
-   you are acting on never blends into the sea of open ones. Each swatch is the
-   solid token, matching the filled buttons rather than a washed-out tint. */
-const LEGEND: { key: string; label: string; className: string }[] = [
-  { key: "available", label: "Open", className: "bg-success-strong" },
-  { key: "selected", label: "Selected", className: "bg-primary" },
-  { key: "confirmed", label: "Booked", className: "bg-destructive-strong" },
-  { key: "pending", label: "Pending confirmation", className: "bg-warning-strong" },
-  { key: "past", label: "Past", className: "bg-muted border border-border" },
-];
 
 export function BookingFlow({
   courts,
@@ -116,9 +108,8 @@ export function BookingFlow({
   const [loading, setLoading] = useState(true);
   const [maxHours, setMaxHours] = useState(6);
   const [slotDurationMin, setSlotDurationMin] = useState(initialSlotDurationMin);
-  const [selectedCourtId, setSelectedCourtId] = useState<number | null>(null);
-  const [selectedStartMs, setSelectedStartMs] = useState<number | null>(null);
-  const [hours, setHours] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [limitNote, setLimitNote] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
   const stripRef = useRef<HTMLDivElement>(null);
@@ -127,10 +118,13 @@ export function BookingFlow({
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
   const stripDates = Array.from({ length: totalAdvanceDays + 1 }, (_, i) => addDaysISO(todayISO, i));
 
+  /* Selections are per-day: the grid only prices the day it is showing, so
+     carrying ticks across a date change would total up hours the customer can
+     no longer see or untick. */
   function selectDate(d: string) {
     setDate(d);
-    setSelectedCourtId(null);
-    setSelectedStartMs(null);
+    setSelected(new Set());
+    setLimitNote(null);
     setLoading(true);
   }
 
@@ -222,6 +216,44 @@ export function BookingFlow({
       slotCents: Math.round((rateCents * slotDurationMin) / 60),
     };
   });
+  const centsByStart = new Map(rows.map((r) => [r.startMs, r.slotCents]));
+
+  const picks = [...selected].map(parsePickKey);
+  const runs = groupSlotsIntoRuns(picks, slotDurationMin);
+  /* Every cell already carries its own hour's tiered rate, so the bill is just
+     their sum — no need to re-derive the bands a run spans. */
+  const totalCents = picks.reduce((sum, p) => sum + (centsByStart.get(p.startMs) ?? 0), 0);
+  const longestRun = runs.reduce((max, run) => Math.max(max, run.hours), 0);
+
+  /* A pick that breaks a limit is refused rather than silently trimmed: the
+     customer needs to know which limit they hit, and why the cell they just
+     tapped stayed empty. */
+  function toggleSlot(courtId: number, startMs: number) {
+    const key = pickKey(courtId, startMs);
+    const next = new Set(selected);
+
+    if (next.has(key)) {
+      next.delete(key);
+      setSelected(next);
+      setLimitNote(null);
+      return;
+    }
+
+    if (next.size >= MAX_SELECTED_SLOTS) {
+      setLimitNote(`You can book at most ${MAX_SELECTED_SLOTS} slots at a time.`);
+      return;
+    }
+
+    next.add(key);
+    const candidate = groupSlotsIntoRuns([...next].map(parsePickKey), slotDurationMin);
+    if (candidate.some((run) => run.hours > maxHours)) {
+      setLimitNote(`A court can only be booked for ${maxHours} hours in a row.`);
+      return;
+    }
+
+    setSelected(next);
+    setLimitNote(null);
+  }
 
   /* Read as UTC-midnight like the rest of the ISO-date arithmetic here, so the
      weekday can't slip a day depending on the viewer's own timezone. Both days
@@ -259,29 +291,6 @@ export function BookingFlow({
       </blockquote>
     </div>
   );
-
-  const selectedCourtSlots = selectedCourtId !== null ? (slotsByCourt[selectedCourtId] ?? []) : [];
-  const selectedCourtName = courts.find((c) => c.id === selectedCourtId)?.name ?? "";
-
-  function contiguousAvailable(courtSlots: Slot[], startMs: number): number {
-    const idx = courtSlots.findIndex((s) => s.startMs === startMs);
-    if (idx === -1) return 0;
-    let count = 0;
-    for (let i = idx; i < courtSlots.length; i++) {
-      const expectedStart = startMs + count * slotDurationMin * 60_000;
-      if (courtSlots[i].startMs !== expectedStart || !courtSlots[i].available) break;
-      count++;
-      if (count >= maxHours) break;
-    }
-    return count;
-  }
-
-  const maxDuration =
-    selectedStartMs !== null ? Math.max(contiguousAvailable(selectedCourtSlots, selectedStartMs), 1) : 1;
-  const totalCents =
-    selectedStartMs !== null
-      ? computeBookingPriceCents({ startMs: selectedStartMs, hours, slotDurationMin, tz, tiers, fallbackCentsPerHour: priceCentsPerHour })
-      : 0;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-6 sm:gap-5 sm:px-4 sm:py-8">
@@ -370,23 +379,23 @@ export function BookingFlow({
         >
           {stripDates.map((d) => {
             const { weekday, day, month } = dateStripParts(d);
-            const selected = d === date;
+            const isActive = d === date;
             return (
               <button
                 key={d}
                 type="button"
                 data-date={d}
                 onClick={() => selectDate(d)}
-                aria-pressed={selected}
+                aria-pressed={isActive}
                 aria-label={formatDateLabel(d)}
                 className={cn(
                   "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition-colors sm:min-w-16",
-                  selected
+                  isActive
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
                   /* Today keeps a faint ring so the strip still reads as "starts
                      here" once it has been scrolled away from the left edge. */
-                  !selected && d === todayISO && "ring-1 ring-primary/40",
+                  !isActive && d === todayISO && "ring-1 ring-primary/40",
                 )}
               >
                 {/* Opacity rather than a muted token, so the two small lines stay
@@ -410,15 +419,6 @@ export function BookingFlow({
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground sm:text-xs">
-        {LEGEND.map((item) => (
-          <span key={item.key} className="flex items-center gap-1.5">
-            <span className={cn("size-2.5 shrink-0 rounded-full", item.className)} />
-            {item.label}
-          </span>
-        ))}
-      </div>
-
       {isSabbathDay && !sabbathNoteAfterGrid && sabbathCard}
 
       {loading ? (
@@ -426,185 +426,199 @@ export function BookingFlow({
       ) : rows.length === 0 ? (
         <p className="surface-card p-6 text-center text-sm text-muted-foreground">Closed this day.</p>
       ) : (
-        <div className="surface-card overflow-x-auto">
-          {/* The grid fills the card rather than sizing to its content, so two
-              courts stay side by side on a phone instead of pushing the time
-              column off-screen. Columns only stop shrinking at their minimums
-              (the `--*-col` vars, widened from `sm` up), and the card scrolls
-              horizontally past that — i.e. once there are too many courts. */}
-          <div
-            className="grid min-w-full [--court-col:4rem] [--time-col:4.25rem] sm:[--court-col:5.5rem] sm:[--time-col:6rem]"
-            style={{
-              gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${courts.length}, minmax(var(--court-col), 1fr))`,
-            }}
-          >
-            <div className="border-b border-r border-border bg-secondary/60 px-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-2 sm:py-3 sm:text-xs">
-              Time
-            </div>
-            {courts.map((court) => (
-              <div
-                key={court.id}
-                className="flex items-center justify-center border-b border-border bg-secondary/60 px-1.5 py-2.5 text-center text-[11px] font-semibold leading-tight text-balance sm:px-2 sm:py-3 sm:text-sm"
-              >
-                {court.name}
+        <div className="surface-card overflow-hidden">
+          <div className="overflow-x-auto">
+            {/* The grid fills the card rather than sizing to its content, so two
+                courts stay side by side on a phone instead of pushing the time
+                column off-screen. Columns only stop shrinking at their minimums
+                (the `--*-col` vars, widened from `sm` up), and the card scrolls
+                horizontally past that — i.e. once there are too many courts. */}
+            <div
+              className="grid min-w-full [--court-col:6.5rem] [--time-col:6.75rem] sm:[--court-col:9rem] sm:[--time-col:11rem]"
+              style={{
+                gridTemplateColumns: `minmax(var(--time-col), auto) repeat(${courts.length}, minmax(var(--court-col), 1fr))`,
+              }}
+            >
+              <div className="border-b border-border bg-secondary/60 px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:px-4 sm:py-4 sm:text-xs">
+                Time schedule
               </div>
-            ))}
+              {courts.map((court) => (
+                <div
+                  key={court.id}
+                  className="border-b border-border bg-secondary/60 px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:px-4 sm:py-4 sm:text-xs"
+                >
+                  {court.name}
+                </div>
+              ))}
 
-            {rows.map((row, i) => {
-              const showBand = i === 0 || rows[i - 1].part !== row.part;
-              /* The card's own border draws the bottom edge, so the last row
-                 skips its rule rather than doubling up on it. */
-              const rule = i === rows.length - 1 ? "" : "border-b border-border";
-              return (
-                <Fragment key={row.startMs}>
-                  {/* Tinted with the primary hue rather than `secondary`, so the
-                      day-part divider reads as its own thing against the court
-                      header and the time column, which share that neutral. */}
-                  {showBand && (
-                    <div className="col-span-full border-b border-border bg-primary/10 px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wide text-primary sm:px-3 sm:text-xs">
-                      {row.part}
-                    </div>
-                  )}
-
-                  <div
-                    className={cn(
-                      "flex flex-col justify-center border-r border-border bg-secondary/25 px-1.5 py-2 leading-tight sm:px-2",
-                      rule,
-                    )}
-                  >
-                    {/* Nowrap keeps "11 AM-12 PM" on one line; the `auto` track
-                        widens to fit it rather than the label wrapping. */}
-                    <span className="whitespace-nowrap text-[11px] font-medium sm:text-sm">{row.rangeLabel}</span>
-                    <span className="whitespace-nowrap text-[11px] font-bold text-primary sm:text-sm">
-                      {formatMoneyCompact(row.slotCents, currency)}
-                    </span>
-                  </div>
-
-                  {courts.map((court) => {
-                    const slot = slotByCourtAndStart.get(court.id)?.get(row.startMs);
-                    const selected = slot?.startMs === selectedStartMs && court.id === selectedCourtId;
-                    const status = slot?.status;
-                    const label = selected ? "Selected" : status ? SLOT_STATUS_LABEL[status] : "Closed";
-                    return (
-                      <div key={court.id} className={cn("flex p-1 sm:p-1.5", rule)}>
-                        <button
-                          type="button"
-                          disabled={!slot?.available}
-                          onClick={() => {
-                            setSelectedCourtId(court.id);
-                            setSelectedStartMs(row.startMs);
-                            setHours(1);
-                          }}
-                          aria-label={`${court.name}, ${row.rangeLabel}, ${label}`}
-                          className={cn(
-                            "flex h-full min-h-11 w-full items-center justify-center rounded-lg border px-1 text-[10px] font-semibold uppercase tracking-wide transition-colors",
-                            /* Solid fills with their own foreground token —
-                               a 15%-opacity tint over the card read as washed
-                               out, and left the four states too close to tell
-                               apart at a glance on a phone. */
-                            selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : status === "confirmed"
-                                ? "cursor-not-allowed border-destructive-strong bg-destructive-strong text-destructive-foreground"
-                                : status === "pending"
-                                  ? "cursor-not-allowed border-warning-strong bg-warning-strong text-warning-foreground"
-                                  : status === "available"
-                                    ? "border-success-strong bg-success-strong text-success-foreground hover:brightness-110"
-                                    : "cursor-not-allowed border-border bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {label}
-                        </button>
+              {rows.map((row, i) => {
+                const showBand = i === 0 || rows[i - 1].part !== row.part;
+                /* The card's own border draws the bottom edge, so the last row
+                   skips its rule rather than doubling up on it. */
+                const rule = i === rows.length - 1 ? "" : "border-b border-border";
+                return (
+                  <Fragment key={row.startMs}>
+                    {/* Tinted with the primary hue rather than `secondary`, so the
+                        day-part divider reads as its own thing against the court
+                        header and the time column, which share that neutral. */}
+                    {showBand && (
+                      <div className="col-span-full border-b border-border bg-primary/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary sm:px-4 sm:text-xs">
+                        {row.part}
                       </div>
-                    );
-                  })}
-                </Fragment>
-              );
-            })}
+                    )}
+
+                    <div className={cn("flex items-center px-3 py-2 sm:px-4", rule)}>
+                      {/* Nowrap keeps the pair on one line; the `auto` track
+                          widens to fit it rather than the label wrapping. */}
+                      <span className="whitespace-nowrap font-mono text-[10px] font-semibold tracking-tight sm:text-xs">
+                        {row.rangeLabel}
+                      </span>
+                    </div>
+
+                    {courts.map((court) => {
+                      const slot = slotByCourtAndStart.get(court.id)?.get(row.startMs);
+                      const isPicked = selected.has(pickKey(court.id, row.startMs));
+
+                      /* No slot at all on this court for this row — the other
+                         courts are open now, this one simply has no such hour. */
+                      if (!slot) {
+                        return (
+                          <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
+                            <span className="flex h-11 w-full items-center justify-center text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/50 sm:text-xs">
+                              N/A
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      if (!slot.available) {
+                        return (
+                          <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
+                            <span className="flex h-11 w-full items-center justify-between gap-2 rounded-xl bg-muted/60 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">
+                              <span className="truncate">
+                                {LOCKED_LABEL[slot.status as Exclude<SlotStatus, "available">]}
+                              </span>
+                              <Lock className="size-3.5 shrink-0 opacity-70" />
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
+                          <button
+                            type="button"
+                            onClick={() => toggleSlot(court.id, row.startMs)}
+                            aria-pressed={isPicked}
+                            aria-label={`${court.name}, ${row.rangeLabel}, ${formatMoney(row.slotCents, currency)}`}
+                            className={cn(
+                              "flex h-11 w-full items-center justify-between gap-2 rounded-xl border px-3 text-xs font-bold transition-colors sm:text-sm",
+                              isPicked
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                            )}
+                          >
+                            <span className="truncate">{formatMoneyCompact(row.slotCents, currency)}</span>
+                            {isPicked ? (
+                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary-foreground text-primary">
+                                <Check className="size-3.5" strokeWidth={3} />
+                              </span>
+                            ) : (
+                              <span className="size-5 shrink-0 rounded-full border-2 border-muted-foreground/40" />
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
 
-      {selectedStartMs !== null && selectedCourtId !== null && (
-        <div className="surface-card p-4 sm:p-5">
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
-            {selectedCourtName} · Duration (hours)
-          </label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {Array.from({ length: maxDuration }, (_, i) => i + 1).map((h) => (
-              <button
-                key={h}
-                type="button"
-                onClick={() => setHours(h)}
-                className={cn(
-                  "flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors",
-                  h === hours
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-accent",
-                )}
-              >
-                {h}
-              </button>
-            ))}
-          </div>
-          {hours >= CALL_REQUIRED_HOURS && (
-            <p className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
-              <Info className="mt-0.5 size-4 shrink-0 text-primary" />
-              <span>
-                Bookings of {CALL_REQUIRED_HOURS}+ hours are held for {holdMinutes} minutes while you call us to
-                arrange payment — no reference number needed online.
-              </span>
-            </p>
-          )}
-          <p className="mt-4 text-lg font-semibold">Total: {formatMoney(totalCents, currency)}</p>
+          {/* The running total lives with the grid it counts, so ticking a cell
+              and watching the bill move never costs a scroll. */}
+          <div className="border-t border-border p-4 sm:p-5">
+            {limitNote && (
+              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+                <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>{limitNote}</span>
+              </p>
+            )}
 
-          <div className="mt-4">
-            <label htmlFor="note" className="mb-1 block text-sm font-medium text-muted-foreground">
-              Note (optional)
-            </label>
-            <textarea
-              id="note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
+            {longestRun >= CALL_REQUIRED_HOURS && (
+              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+                <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>
+                  {CALL_REQUIRED_HOURS}+ hours back to back on one court are held for {holdMinutes} minutes while you
+                  call us to arrange payment — no reference number needed online.
+                </span>
+              </p>
+            )}
 
-          {state?.error && <p className="mt-3 text-sm text-destructive">{state.error}</p>}
+            {runs.length > 1 && (
+              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+                <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>
+                  Your picks aren&rsquo;t all back to back on one court, so they become {runs.length} separate bookings
+                  — each one is paid for on its own from My bookings.
+                </span>
+              </p>
+            )}
 
-          <div className="mt-5">
-            {!signedIn ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-secondary/60 p-4 text-center">
-                <p className="text-sm text-muted-foreground">Sign in to reserve this slot.</p>
-                <SignInButton callbackUrl="/book" />
-              </div>
-            ) : needsRegistration ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-secondary/60 p-4 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Complete your profile (name &amp; mobile number) to reserve this slot.
+            {state?.error && <p className="mb-3 text-sm text-destructive">{state.error}</p>}
+
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">
+                  Selected slots
                 </p>
+                <p className="mt-1 text-lg font-bold sm:text-xl">
+                  {selected.size === 0 ? "No slots yet" : `${selected.size} ${selected.size === 1 ? "Slot" : "Slots"}`}
+                </p>
+                {selected.size > 0 && (
+                  <p className="text-sm text-muted-foreground">Total {formatMoney(totalCents, currency)}</p>
+                )}
+              </div>
+
+              {!signedIn ? (
+                <SignInButton callbackUrl="/book" />
+              ) : needsRegistration ? (
                 <Link
                   href="/register?callbackUrl=/book"
                   className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
                 >
                   Complete profile
                 </Link>
+              ) : (
+                <form action={formAction}>
+                  <input type="hidden" name="slots" value={JSON.stringify(picks)} />
+                  <input type="hidden" name="note" value={note} />
+                  <button
+                    type="submit"
+                    disabled={pending || selected.size === 0}
+                    className="inline-flex items-center gap-2 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {pending ? "Booking…" : "Confirm"}
+                    {!pending && <Check className="size-4" />}
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {selected.size > 0 && signedIn && !needsRegistration && (
+              <div className="mt-4">
+                <label htmlFor="note" className="mb-1 block text-sm font-medium text-muted-foreground">
+                  Note (optional)
+                </label>
+                <textarea
+                  id="note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                />
               </div>
-            ) : (
-              <form action={formAction}>
-                <input type="hidden" name="courtId" value={selectedCourtId} />
-                <input type="hidden" name="startMs" value={selectedStartMs} />
-                <input type="hidden" name="hours" value={hours} />
-                <input type="hidden" name="note" value={note} />
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="w-full rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
-                >
-                  {pending ? "Booking…" : "Reserve this slot"}
-                </button>
-              </form>
             )}
           </div>
         </div>
