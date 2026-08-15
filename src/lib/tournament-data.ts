@@ -44,14 +44,26 @@ const entryInclude = {
 export async function listPublicTournaments(filters?: {
   status?: TournamentStatus;
   format?: TournamentFormat;
-  skillLevel?: string;
+  /** Keep only tournaments a player at this rating may actually enter. An
+   *  open-ended bound admits everyone on that side, and a tournament with no
+   *  band at all admits everyone full stop — which is why both sides test for
+   *  null as well as for the number. */
+  openToRating?: number;
 }) {
   await sweepTournaments();
+  const rating = filters?.openToRating;
   return prisma.tournament.findMany({
     where: {
       status: filters?.status ? filters.status : { in: PUBLIC_STATUSES },
       ...(filters?.format ? { format: filters.format } : {}),
-      ...(filters?.skillLevel ? { skillLevel: filters.skillLevel } : {}),
+      ...(rating === undefined
+        ? {}
+        : {
+            AND: [
+              { OR: [{ minSkillRating: null }, { minSkillRating: { lte: rating } }] },
+              { OR: [{ maxSkillRating: null }, { maxSkillRating: { gte: rating } }] },
+            ],
+          }),
     },
     include: {
       courts: { include: { court: { select: { id: true, name: true } } } },
@@ -59,16 +71,6 @@ export async function listPublicTournaments(filters?: {
     },
     orderBy: [{ startAt: "asc" }],
   });
-}
-
-/** Every skill band actually in use, for the browse filter — no separate
- *  taxonomy to keep in step with what admins type. */
-export async function listSkillLevels(): Promise<string[]> {
-  const rows = await prisma.tournament.groupBy({
-    by: ["skillLevel"],
-    where: { status: { in: PUBLIC_STATUSES }, skillLevel: { not: "" } },
-  });
-  return rows.map((r) => r.skillLevel).sort();
 }
 
 export async function listAdminTournaments() {

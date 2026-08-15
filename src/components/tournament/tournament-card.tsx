@@ -4,6 +4,7 @@ import type { TournamentFormat, TournamentPlayType, TournamentStatus } from "@/g
 import { formatDateTimeLabel, formatMoney } from "@/lib/format";
 import { FORMAT_LABELS, isAwaitingRegistrationOpen, PLAY_TYPE_LABELS } from "@/lib/tournament";
 import { TournamentChip, TournamentStatusBadge } from "@/components/tournament/status-badge";
+import { formatSkillBand } from "@/lib/skill";
 
 export type TournamentCardData = {
   id: string;
@@ -11,7 +12,8 @@ export type TournamentCardData = {
   description: string;
   format: TournamentFormat;
   playType: TournamentPlayType;
-  skillLevel: string;
+  minSkillRating: number | null;
+  maxSkillRating: number | null;
   status: TournamentStatus;
   maxEntries: number;
   entryFeeCents: number;
@@ -49,7 +51,7 @@ export function TournamentCard({
       <div className="flex flex-wrap gap-1.5">
         <TournamentChip>{FORMAT_LABELS[tournament.format]}</TournamentChip>
         <TournamentChip>{PLAY_TYPE_LABELS[tournament.playType]}</TournamentChip>
-        <TournamentChip>{tournament.skillLevel || "All levels"}</TournamentChip>
+        <TournamentChip>{formatSkillBand(tournament.minSkillRating, tournament.maxSkillRating)}</TournamentChip>
       </div>
 
       {tournament.description && (

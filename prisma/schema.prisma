@@ -107,6 +107,11 @@ model User {
   name      String   @default("")
   phone     String   @default("")
   image     String   @default("")
+  /// Self-declared pickleball rating on the usual 2.0–5.5 scale, which decides
+  /// which tournaments this member may enter. Null means unrated, which is the
+  /// starting state and is not a defect — it only blocks entry to tournaments
+  /// that actually set a band. A member sets their own; an admin can correct it.
+  skillRating Float?
   role      Role     @default(customer)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
@@ -260,8 +265,13 @@ model Tournament {
   description            String             @default("")
   format                 TournamentFormat
   playType               TournamentPlayType
-  /// Empty means open to all levels; otherwise a free-text band like "3.5-4.0".
-  skillLevel             String             @default("")
+  /// The skill band that may enter, as real bounds rather than a label: these
+  /// are what `joinTournament` enforces, and the text every view shows is
+  /// derived from them (`formatSkillBand`). Keeping one fact instead of a label
+  /// plus a rule is what stops the two disagreeing. Null is open-ended on that
+  /// side; both null means open to all levels.
+  minSkillRating         Float?
+  maxSkillRating         Float?
   /// One entry is one Registration row — a pair in doubles, one player in singles.
   maxEntries             Int
   /// Fewer registered entries than this when registration closes auto-cancels.
@@ -363,6 +373,12 @@ model Registration {
   /// every other format, and before the draw.
   pool         Int?
   feePaid      Boolean            @default(false)
+  /// What the entrant typed to account for the entry fee — a GCash/bank
+  /// reference, or their mobile number when they are settling it with the desk.
+  /// Required to enter a tournament that charges one, so staff always have
+  /// something to chase; empty on a free tournament. Never a verified payment:
+  /// `feePaid` is still the staff tick.
+  paymentReference String          @default("")
   registeredAt DateTime           @default(now()) @db.Timestamptz(3)
 
   matchesAsSideA Match[] @relation("MatchSideA")

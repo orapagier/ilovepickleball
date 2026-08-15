@@ -159,6 +159,91 @@ Swiss resolves its round count against the field that **started**, not the
 survivors — otherwise one withdrawal shortens the tournament under everybody
 still playing.
 
+## Skill levels
+
+A member carries one `User.skillRating` on the 2.0–5.5 half-step scale; a
+tournament carries `minSkillRating`/`maxSkillRating`. Entry is refused unless
+the rating sits inside the band — for **every** player in the entry, since a
+doubles pair enters as one row and an out-of-band partner is an out-of-band
+entry.
+
+The band is stored as the bounds and **nothing else**. The text on the browse
+card, the tournament page, the admin form and the CSV all come from
+`formatSkillBand`, so what a member reads and what `canEnterAtRating` enforces
+are the same fact. The earlier free-text `skillLevel` label could say "3.5-4.0"
+while admitting anybody, which is exactly the failure this shape rules out.
+
+An **unrated** member is refused from a banded tournament rather than waved
+through. The point of a band is that everyone in the draw is known to belong in
+it, and "no rating" is not evidence of that. The refusal is a dead end for about
+ten seconds — the join panel links straight to the profile form.
+
+A member the band excludes **never sees the enter form at all**. The tournament
+page computes the verdict with `canEnterAtRating` and passes a `SkillBlock` to
+`JoinPanel`, which renders a notice in the form's place: "set your level" when
+unrated (the member almost certainly qualifies), and a plain refusal naming the
+band and their rating when they don't. The refusal offers no control that looks
+like one, because it isn't fixable by the member — the rating is self-declared,
+so the honest next step is the desk.
+
+This is about money, not tidiness. The entry fee is paid by hand before anything
+in the app confirms the entry, so a member who can be refused *after* filling in
+a payment reference is a member who can pay for a tournament they cannot enter.
+
+A doubles **partner** is still only checked server-side. They are identified by
+an email typed into the form, so there is nothing to check until it is
+submitted — `checkSkillBand` covers every player in the entry.
+
+Ratings are self-declared, and an admin can correct one from the member's page
+(`adminSetSkillRating`). Correcting a rating is deliberately **not**
+retroactive: an entry already in a draw stays in it. Pulling somebody out of a
+bracket is an admin withdrawal, with consequences for the draw, not a side
+effect of editing a profile field.
+
+Setting a rating is optional and is *not* part of `ProfileCompletion.complete`,
+which gates booking a court — a pickleball rating has nothing to do with
+booking one, and blocking that would tax people who only ever want to play.
+
+A member sets their own from **`/profile`**, linked in the header whenever
+somebody is signed in. That page exists because `/register` cannot serve the
+purpose: `/register` is the gate before a first booking and redirects away the
+moment the profile is complete, so it is only ever seen by someone being
+stopped. A rating is changed long after that, usually on the way to entering a
+tournament. `/register` still offers the field — a member is already filling in
+a form — but `/profile` is where it lives.
+
+Both use `SkillLevelPicker`, which shows the matrix row for the level being
+considered (what a player at it can do, and what it is ready to enter) rather
+than only the number. The rating is a self-assessment, and nobody can tell a 3.0
+from a 3.5 by the digits.
+
+The browse filter asks "what can I enter at this rating" rather than listing
+bands, because that is the question a member actually has.
+
+## Entry fees
+
+A tournament that charges requires a **payment reference** before the entry is
+listed — `Registration.paymentReference`, free text, capped at 60 characters.
+
+It is deliberately not a validated transaction id. The desk takes cash and bank
+transfers as well as e-wallets, so a mobile number is a perfectly good answer;
+what matters is that staff are never left with an entry and no way to chase it.
+Nothing about it verifies payment — `feePaid` is still the staff tick, and the
+admin entry list shows the reference until that tick happens.
+
+The join form shows the club's configured payee accounts (GCash / BDO / QRPh,
+from settings) right above the field, and only the ones actually filled in — an
+empty account rendered as a payee reads as an instruction to send money nowhere.
+Asking for a reference without saying where to pay is the one arrangement that
+guarantees a wrong answer.
+
+**Order matters in `joinTournament`:** the skill band is checked *before* the
+payment reference. The fee is settled by hand, outside the app, so a refusal
+that arrives after the reference field is a refusal that arrives after the
+money. For the same reason the tournament page decides the entrant's own skill
+verdict server-side and renders a notice **instead of** the enter form — see
+below.
+
 ## Lifecycle
 
 ```
@@ -267,6 +352,27 @@ Rules the engine enforces:
 - An admin can always force any match onto a court by hand from the run-day view,
   window or no window.
 
+### Where windows are set
+
+Windows can be added **on the create form**, before the tournament exists. A
+tournament that spans several mornings is that shape from the moment it is
+conceived, and an admin who has to save first and schedule second has to
+remember to come back — the window they meant is the detail most likely to be
+forgotten. Rows post as parallel `sessionName`/`sessionStartAt`/`sessionEndAt`
+fields, validated in `readTournamentForm` against the same rules `saveSession`
+applies (named, ending after they start, non-overlapping) and created with the
+tournament. Adding none stays the normal case: one continuous block.
+
+Once the tournament exists, windows are edited only through the `ScheduleEditor`
+on its own page. That is not duplication with different clothes — by then a
+window holds matches, so removing one unschedules them, and each edit is worth
+its own action that can weigh that. Assigning rounds to windows likewise waits
+for a draw to exist.
+
+A draft blocks no courts, so creating windows with a draft does not call
+`syncCourtBlocks`; `publishTournament` does, which is what puts them on the
+calendar.
+
 A window opening is a thing that happens on a clock, not in response to a
 result, so nothing else would notice it. `sweepTournaments` re-runs the court
 assignment for every live tournament, which is what puts Monday's round on court
@@ -361,10 +467,12 @@ Carried over from the plan, all of them still true in the code:
   lifecycle or the court blocks.
 - Doubles partners are added directly at registration, by the email they sign in
   with — no invite/accept step, and no member directory exposed to do it.
+- Skill ratings are self-declared, with staff able to correct one. Nothing
+  verifies them against results played.
 - No participant self-reported scores; staff enter them.
 - No pre-computed time slots.
 - Refunds are the `refundEntryFee` hook. There is no online tournament payment
-  flow — `feePaid` is a box staff tick — so the hook logs what is owed rather
-  than reversing anything.
+  flow — an entrant supplies a reference and `feePaid` is a box staff tick — so
+  the hook logs what is owed rather than reversing anything.
 - Seeding is random.
 - No drag-and-drop seeding UI.

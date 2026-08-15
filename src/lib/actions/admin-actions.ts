@@ -7,6 +7,7 @@ import { getSessionUser, type SessionUser } from "@/lib/auth-helpers";
 import { getSettings, getBusinessHours, getBlackoutDateSet, ACTIVE_STATUSES } from "@/lib/booking-data";
 import { isValidBookingRange, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 import { queueCalendarSync, removeCalendarEvent } from "@/lib/google-calendar";
+import { isValidSkillRating } from "@/lib/skill";
 
 export type ActionState = { error?: string; ok?: boolean };
 
@@ -333,6 +334,29 @@ export async function renameCourt(_prev: ActionState, formData: FormData): Promi
   await prisma.court.update({ where: { id: courtId }, data: { name } });
   revalidatePath("/admin/courts");
   revalidatePath("/book");
+  return { ok: true };
+}
+
+/**
+ * Correct a member's skill rating. Members set their own, but a self-declared
+ * rating is a guess until somebody has watched them play — and it decides which
+ * tournaments they can enter, so staff need the last word.
+ *
+ * Deliberately not retroactive: an entry already accepted into a draw stays in
+ * it. Pulling somebody out of a bracket because their rating moved is an admin
+ * withdrawal, a decision with consequences for the draw, not a side effect of
+ * editing a profile field.
+ */
+export async function adminSetSkillRating(userId: string, rating: number | null): Promise<ActionState> {
+  await requireAdminOrThrow();
+  if (rating !== null && !isValidSkillRating(rating)) return { error: "Pick a rating from the list." };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) return { error: "Member not found." };
+
+  await prisma.user.update({ where: { id: userId }, data: { skillRating: rating } });
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/tournaments");
   return { ok: true };
 }
 

@@ -28,6 +28,14 @@ import {
   tournamentDeletability,
   type EditableField,
 } from "@/lib/tournament";
+import {
+  canEnterAtRating,
+  formatSkillBand,
+  formatSkillRating,
+  hasSkillBand,
+  parseSkillRating,
+  skillBandError,
+} from "@/lib/skill";
 import type { TournamentFormat, TournamentPlayType } from "@/generated/prisma/enums";
 
 export type ActionState = { error?: string; ok?: boolean; message?: string };
@@ -84,7 +92,12 @@ type TournamentInput = {
   description: string;
   format: TournamentFormat;
   playType: TournamentPlayType;
-  skillLevel: string;
+  minSkillRating: number | null;
+  maxSkillRating: number | null;
+  /** Windows of play supplied at creation. Always empty on an edit — an
+   *  existing tournament's schedule is edited through `saveSession`, which can
+   *  weigh the matches already sitting in a window. */
+  sessions: { name: string; startAt: Date; endAt: Date }[];
   maxEntries: number;
   minEntries: number;
   entryFeeCents: number;
@@ -128,6 +141,35 @@ function readTournamentForm(formData: FormData, tz: string): TournamentInput | s
   if (!FORMATS.includes(format)) return "Choose a format.";
   const playType = String(formData.get("playType") ?? "") as TournamentPlayType;
   if (!PLAY_TYPES.includes(playType)) return "Choose singles or doubles.";
+
+  /* The skill band is the entry rule itself, not a label describing one, so a
+     bad pair of bounds is rejected here rather than quietly enforcing nothing. */
+  const minSkillRating = parseSkillRating(formData.get("minSkillRating"));
+  const maxSkillRating = parseSkillRating(formData.get("maxSkillRating"));
+  if (minSkillRating === undefined || maxSkillRating === undefined) {
+    return "Pick skill ratings from the list, or leave them blank for all levels.";
+  }
+  const bandError = skillBandError(minSkillRating, maxSkillRating);
+  if (bandError) return bandError;
+
+  /* Windows set on the create form. Same rules `saveSession` applies one at a
+     time — named, ending after they start, and not overlapping — checked here
+     against each other, since none of them exist yet to be checked against. */
+  const sessionNames = formData.getAll("sessionName");
+  const sessionStarts = formData.getAll("sessionStartAt");
+  const sessionEnds = formData.getAll("sessionEndAt");
+  const sessions: { name: string; startAt: Date; endAt: Date }[] = [];
+  for (let i = 0; i < sessionNames.length; i++) {
+    const name = String(sessionNames[i] ?? "").trim().slice(0, 60);
+    if (!name) return "Name every window — “Round 1”, “Sunday AM”, whatever you call it.";
+    const startAt = parseLocalDateTime(sessionStarts[i] ?? null, tz);
+    const endAt = parseLocalDateTime(sessionEnds[i] ?? null, tz);
+    if (!startAt || !endAt) return `Set when “${name}” starts and ends.`;
+    if (endAt <= startAt) return `“${name}” has to end after it starts.`;
+    const clash = sessions.find((s) => s.startAt < endAt && s.endAt > startAt);
+    if (clash) return `“${name}” overlaps “${clash.name}”. Windows can't share time on the same courts.`;
+    sessions.push({ name, startAt, endAt });
+  }
 
   const maxEntries = parseIntField(formData.get("maxEntries"));
   const minEntries = parseIntField(formData.get("minEntries"));
@@ -201,7 +243,9 @@ function readTournamentForm(formData: FormData, tz: string): TournamentInput | s
     description: String(formData.get("description") ?? "").slice(0, 2000),
     format,
     playType,
-    skillLevel: String(formData.get("skillLevel") ?? "").trim().slice(0, 40),
+    minSkillRating,
+    maxSkillRating,
+    sessions,
     maxEntries,
     minEntries,
     entryFeeCents,
@@ -239,7 +283,8 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
         description: parsed.description,
         format: parsed.format,
         playType: parsed.playType,
-        skillLevel: parsed.skillLevel,
+        minSkillRating: parsed.minSkillRating,
+        maxSkillRating: parsed.maxSkillRating,
         maxEntries: parsed.maxEntries,
         minEntries: parsed.minEntries,
         entryFeeCents: parsed.entryFeeCents,
@@ -255,6 +300,17 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
         swissRounds: parsed.swissRounds,
         createdById: admin.id,
         courts: { create: parsed.courtIds.map((courtId) => ({ courtId })) },
+        /* No `syncCourtBlocks` here: a draft blocks no courts, exactly as when
+           a window is added to a draft through `saveSession`. Publishing is
+           what puts the blocks on the calendar. */
+        sessions: {
+          create: parsed.sessions.map((s, i) => ({
+            name: s.name,
+            startAt: s.startAt,
+            endAt: s.endAt,
+            sortOrder: i + 1,
+          })),
+        },
       },
     });
     revalidateTournamentViews();
@@ -281,7 +337,10 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
   same("description", existing.description === parsed.description);
   same("format", existing.format === parsed.format);
   same("playType", existing.playType === parsed.playType);
-  same("skillLevel", existing.skillLevel === parsed.skillLevel);
+  same(
+    "skillBand",
+    existing.minSkillRating === parsed.minSkillRating && existing.maxSkillRating === parsed.maxSkillRating,
+  );
   same("maxEntries", existing.maxEntries === parsed.maxEntries);
   same("minEntries", existing.minEntries === parsed.minEntries);
   same("entryFeeCents", existing.entryFeeCents === parsed.entryFeeCents);
@@ -340,7 +399,8 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
       description: parsed.description,
       format: parsed.format,
       playType: parsed.playType,
-      skillLevel: parsed.skillLevel,
+      minSkillRating: parsed.minSkillRating,
+      maxSkillRating: parsed.maxSkillRating,
       maxEntries: parsed.maxEntries,
       minEntries: parsed.minEntries,
       entryFeeCents: parsed.entryFeeCents,
@@ -586,6 +646,44 @@ export async function recordWalkover(_prev: ActionState, formData: FormData): Pr
  * Entries
  * ------------------------------------------------------------------ */
 
+/**
+ * Refuses an entry whose players don't sit inside the tournament's skill band,
+ * naming who is out and why. Returns null when everyone may play.
+ *
+ * The message distinguishes "you have no rating" from "your rating is wrong for
+ * this one", because the first is fixable by the member in about ten seconds and
+ * the second isn't fixable at all.
+ */
+async function checkSkillBand(
+  tournament: { minSkillRating: number | null; maxSkillRating: number | null },
+  userId: string,
+  partnerId: string | null,
+): Promise<string | null> {
+  const { minSkillRating: min, maxSkillRating: max } = tournament;
+  if (!hasSkillBand(min, max)) return null;
+
+  const band = formatSkillBand(min, max);
+  const players = await prisma.user.findMany({
+    where: { id: { in: [userId, ...(partnerId ? [partnerId] : [])] } },
+    select: { id: true, name: true, skillRating: true },
+  });
+
+  for (const player of players) {
+    const verdict = canEnterAtRating(player.skillRating, min, max);
+    if (verdict.ok) continue;
+
+    const isSelf = player.id === userId;
+    const who = isSelf ? "You" : player.name.trim() || "Your partner";
+    if (verdict.reason === "unrated") {
+      return isSelf
+        ? `This tournament is for ${band} players. Set your skill level on your profile first, then enter.`
+        : `${who} has no skill level set yet — this tournament is for ${band} players. Ask them to set it on their profile first.`;
+    }
+    return `This tournament is for ${band} players and ${isSelf ? "you are" : `${who} is`} rated ${formatSkillRating(player.skillRating)}.`;
+  }
+  return null;
+}
+
 export async function joinTournament(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await getSessionUser();
   const tournamentId = String(formData.get("tournamentId") ?? "");
@@ -612,6 +710,28 @@ export async function joinTournament(_prev: ActionState, formData: FormData): Pr
     partnerId = partner.id;
   }
 
+  /* The skill band is checked on everyone who would be in the draw, not just
+     whoever filled the form — a doubles pair enters as one entry, so an
+     out-of-band partner is an out-of-band entry. */
+  const bandError = await checkSkillBand(tournament, user.id, partnerId);
+  if (bandError) return { error: bandError };
+
+  /* Deliberately after the band check, so nobody is ever asked for a payment
+     reference for a tournament they cannot enter. The fee is settled by hand
+     before anything here confirms it, so "you don't qualify" arriving second
+     would mean it arrived after the money.
+
+     A reference is required whenever there's a fee, so staff always have a
+     thread to pull on. It is free text on purpose: the desk takes cash and
+     bank transfers as well as e-wallets, so a mobile number is a perfectly
+     good answer. Nothing here verifies payment — `feePaid` is still ticked by
+     hand once the money is actually seen. */
+  const hasFee = tournament.entryFeeCents > 0;
+  const paymentReference = String(formData.get("paymentReference") ?? "").trim().slice(0, 60);
+  if (hasFee && !paymentReference) {
+    return { error: "Enter your payment reference — your GCash, BDO, or QRPh reference, or your mobile number if you're arranging it with the desk." };
+  }
+
   const playerIds = [user.id, ...(partnerId ? [partnerId] : [])];
   const clash = await prisma.registration.findFirst({
     where: {
@@ -636,7 +756,7 @@ export async function joinTournament(_prev: ActionState, formData: FormData): Pr
   const status = registered >= tournament.maxEntries ? "waitlisted" : "registered";
 
   await prisma.registration.create({
-    data: { tournamentId, player1Id: user.id, player2Id: partnerId, status },
+    data: { tournamentId, player1Id: user.id, player2Id: partnerId, status, paymentReference },
   });
 
   revalidateTournamentViews(tournamentId);

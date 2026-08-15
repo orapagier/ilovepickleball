@@ -10,6 +10,7 @@ import { PAY_METHOD_LABELS } from "@/lib/pay-method";
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/action-button";
 import { adminDeleteBooking, adminDeleteUser } from "@/lib/actions/admin-actions";
+import { SkillRatingControl } from "@/components/admin/skill-rating-control";
 import { deleteUserMessage } from "@/lib/users";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -137,6 +138,12 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
               <dd className="break-words text-sm font-medium">{d.value}</dd>
             </div>
           ))}
+          <div>
+            <dt className="text-xs text-muted-foreground">Skill level</dt>
+            <dd className="mt-1">
+              <SkillRatingControl userId={user.id} rating={user.skillRating} />
+            </dd>
+          </div>
         </dl>
       </div>
 

@@ -9,6 +9,7 @@ import { rangeUtcBounds } from "@/lib/scheduling";
 import { csvDateTime, csvMoney, csvResponse, fileStamp, toCsv, type CsvColumn } from "@/lib/csv";
 import { entryName } from "@/lib/tournament-data";
 import { FORMAT_LABELS, PLAY_TYPE_LABELS, TOURNAMENT_STATUS_LABELS } from "@/lib/tournament";
+import { formatSkillBand, formatSkillRating } from "@/lib/skill";
 
 /**
  * GET /api/admin/export/<dataset>.csv
@@ -135,7 +136,7 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/admin/export
       { header: "Name", value: (t) => t.name },
       { header: "Format", value: (t) => FORMAT_LABELS[t.format] },
       { header: "Play type", value: (t) => PLAY_TYPE_LABELS[t.playType] },
-      { header: "Skill level", value: (t) => t.skillLevel || "All levels" },
+      { header: "Skill level", value: (t) => formatSkillBand(t.minSkillRating, t.maxSkillRating) },
       { header: "Status", value: (t) => TOURNAMENT_STATUS_LABELS[t.status] },
       { header: "Registered", value: (t) => count(t, "registered") },
       { header: "Waitlisted", value: (t) => count(t, "waitlisted") },
@@ -165,8 +166,8 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/admin/export
       where: tournamentId ? { tournamentId } : {},
       include: {
         tournament: { select: { name: true, entryFeeCents: true } },
-        player1: { select: { name: true, email: true, phone: true } },
-        player2: { select: { name: true, email: true, phone: true } },
+        player1: { select: { name: true, email: true, phone: true, skillRating: true } },
+        player2: { select: { name: true, email: true, phone: true, skillRating: true } },
       },
       orderBy: [{ tournamentId: "asc" }, { seed: "asc" }, { registeredAt: "asc" }],
       take: MAX_ROWS,
@@ -181,11 +182,16 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/admin/export
       { header: "Player 1", value: (e) => e.player1.name },
       { header: "Player 1 email", value: (e) => e.player1.email },
       { header: "Player 1 phone", value: (e) => e.player1.phone },
+      { header: "Player 1 skill", value: (e) => formatSkillRating(e.player1.skillRating) },
       { header: "Player 2", value: (e) => e.player2?.name ?? "" },
       { header: "Player 2 email", value: (e) => e.player2?.email ?? "" },
       { header: "Player 2 phone", value: (e) => e.player2?.phone ?? "" },
+      { header: "Player 2 skill", value: (e) => (e.player2 ? formatSkillRating(e.player2.skillRating) : "") },
       { header: `Entry fee (${settings.currency})`, value: (e) => csvMoney(e.tournament.entryFeeCents) },
       { header: "Fee paid", value: (e) => (e.feePaid ? "yes" : "no") },
+      // What the entrant gave to account for the fee — the thread staff pull on
+      // when chasing one. Never a verified payment; "Fee paid" is that.
+      { header: "Payment reference", value: (e) => e.paymentReference },
       { header: "Registered at", value: (e) => csvDateTime(e.registeredAt, tz) },
     ];
     return csvResponse(toCsv(entries, columns), `tournament-entries-${stamp}.csv`);

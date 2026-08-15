@@ -16,9 +16,10 @@ import {
 } from "@/lib/tournament";
 import { SignInButton } from "@/components/auth-buttons";
 import { Bracket } from "@/components/tournament/bracket";
-import { JoinPanel } from "@/components/tournament/join-panel";
+import { JoinPanel, type PayeeAccount, type SkillBlock } from "@/components/tournament/join-panel";
 import { PoolTables, StandingsTable } from "@/components/tournament/standings-table";
 import { TournamentChip, TournamentStatusBadge } from "@/components/tournament/status-badge";
+import { canEnterAtRating, formatSkillBand, formatSkillRating, hasSkillBand } from "@/lib/skill";
 
 /** Why the enter button isn't there, said plainly rather than left blank. */
 function closedReason(status: string, opensAt: Date | null, tz: string): string {
@@ -41,7 +42,34 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
   if (!tournament || tournament.status === "draft") notFound();
 
   const tz = settings.timezone;
-  const needsRegistration = user ? !(await getProfileCompletion(user.id)).complete : false;
+  const profile = user ? await getProfileCompletion(user.id) : null;
+  const needsRegistration = profile ? !profile.complete : false;
+  const skillBand = hasSkillBand(tournament.minSkillRating, tournament.maxSkillRating)
+    ? formatSkillBand(tournament.minSkillRating, tournament.maxSkillRating)
+    : null;
+
+  /* Settled here rather than in the panel so the enter form is never rendered
+     to somebody the action would refuse. The fee is paid by hand before
+     anything confirms the entry, so a refusal that arrives after the form is a
+     refusal that arrives after the money. */
+  const verdict =
+    profile && skillBand
+      ? canEnterAtRating(profile.skillRating, tournament.minSkillRating, tournament.maxSkillRating)
+      : { ok: true as const };
+  const skillBlock: SkillBlock | null =
+    verdict.ok || !skillBand
+      ? null
+      : verdict.reason === "unrated"
+        ? { reason: "unrated", band: skillBand }
+        : { reason: "outside", band: skillBand, rating: formatSkillRating(profile!.skillRating) };
+
+  /* Only accounts the club has actually filled in — an empty one shown as a
+     payee reads as an instruction to send money nowhere. */
+  const payeeAccounts: PayeeAccount[] = [
+    { label: "GCash", name: settings.gcashName, number: settings.gcashNumber },
+    { label: "BDO", name: settings.bdoAccountName, number: settings.bdoAccountNumber },
+    { label: "QRPh", name: settings.qrphAccountName, number: settings.qrphAccountNumber },
+  ].filter((a) => a.name.trim() && a.number.trim());
 
   const inDraw = tournament.registrations.filter((r) => r.status !== "withdrawn" && r.status !== "waitlisted");
   const waitlisted = tournament.registrations.filter((r) => r.status === "waitlisted");
@@ -88,7 +116,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
         <div className="flex flex-wrap gap-1.5">
           <TournamentChip>{FORMAT_LABELS[tournament.format]}</TournamentChip>
           <TournamentChip>{PLAY_TYPE_LABELS[tournament.playType]}</TournamentChip>
-          <TournamentChip>{tournament.skillLevel || "All levels"}</TournamentChip>
+          <TournamentChip>{formatSkillBand(tournament.minSkillRating, tournament.maxSkillRating)}</TournamentChip>
         </div>
         {tournament.description && (
           <p className="max-w-prose text-sm text-muted-foreground sm:text-base">{tournament.description}</p>
@@ -172,6 +200,11 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
           entryStatus={(myEntry?.status as "registered" | "waitlisted" | "checked_in" | "no_show") ?? null}
           joinable={joinable}
           withdrawable={withdrawable}
+          entryFeeLabel={
+            tournament.entryFeeCents > 0 ? formatMoney(tournament.entryFeeCents, tournament.currency) : null
+          }
+          payeeAccounts={payeeAccounts}
+          skillBlock={skillBlock}
         />
       )}
 

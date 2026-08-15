@@ -1,28 +1,31 @@
 "use client";
 
 import { useActionState } from "react";
-import { completeRegistration, type ActionState } from "@/lib/actions/profile-actions";
+import { updateProfile, type ActionState } from "@/lib/actions/profile-actions";
 import { SkillLevelPicker } from "@/components/skill-level-picker";
 
-export function RegisterForm({
+/**
+ * The standing edit form for a member's own details.
+ *
+ * Distinct from `RegisterForm`, which is the gate before a first booking and so
+ * ends in a redirect back to wherever the member was headed. This one is the
+ * destination, so it stays put and confirms the save.
+ */
+export function ProfileForm({
   defaultName,
   defaultPhone,
   defaultSkillRating,
   email,
-  callbackUrl,
 }: {
   defaultName: string;
   defaultPhone: string;
   defaultSkillRating: number | null;
   email: string;
-  callbackUrl: string;
 }) {
-  const [state, formAction, pending] = useActionState<ActionState, FormData>(completeRegistration, {});
+  const [state, formAction, pending] = useActionState<ActionState, FormData>(updateProfile, {});
 
   return (
-    <form action={formAction} className="mt-6 flex flex-col gap-4">
-      <input type="hidden" name="callbackUrl" value={callbackUrl} />
-
+    <form action={formAction} className="flex flex-col gap-4">
       <label className="text-sm font-medium text-foreground">
         Gmail
         <input
@@ -30,6 +33,11 @@ export function RegisterForm({
           disabled
           className="mt-1 w-full rounded-lg border border-input bg-secondary/50 px-3 py-2 text-sm text-muted-foreground"
         />
+        {/* Sign-in identity, so it isn't ours to edit — changing it would be
+            changing which account this is. */}
+        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+          This is the account you sign in with, and how a doubles partner adds you to an entry.
+        </span>
       </label>
 
       <label className="text-sm font-medium text-foreground">
@@ -55,20 +63,17 @@ export function RegisterForm({
         />
       </label>
 
-      {/* Not required, because this form gates booking a court and a rating has
-          nothing to do with that — it is here only because a member is already
-          filling in a form, and asking once beats asking later. It can be
-          changed any time from /profile. */}
       <SkillLevelPicker defaultValue={defaultSkillRating} />
 
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+      {state?.ok && !state.error && <p className="text-sm text-success">Saved.</p>}
 
       <button
         type="submit"
         disabled={pending}
-        className="mt-2 w-full rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="mt-2 self-start rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
       >
-        {pending ? "Saving…" : "Save and continue"}
+        {pending ? "Saving…" : "Save changes"}
       </button>
     </form>
   );

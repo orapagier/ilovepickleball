@@ -12,10 +12,13 @@ export default async function RegisterPage(props: PageProps<"/register">) {
     redirect(`/signin?callbackUrl=${encodeURIComponent(`/register?callbackUrl=${callbackUrl}`)}`);
   }
 
-  const [{ name, phone, complete }, settings] = await Promise.all([
+  const [{ name, phone, skillRating, complete }, settings] = await Promise.all([
     getProfileCompletion(user.id),
     getSettings(),
   ]);
+  /* One job: get a member past the gate and back to what they were doing. Once
+     they are past it there is nothing here for them — changing any of these
+     later is /profile, which is reachable on purpose from the header. */
   if (complete) redirect(callbackUrl);
 
   return (
@@ -25,7 +28,13 @@ export default async function RegisterPage(props: PageProps<"/register">) {
         <p className="mt-2 text-sm text-muted-foreground">
           {settings.businessName} requires your complete name and mobile number before you can book a court.
         </p>
-        <RegisterForm defaultName={name} defaultPhone={phone} email={user.email ?? ""} callbackUrl={callbackUrl} />
+        <RegisterForm
+          defaultName={name}
+          defaultPhone={phone}
+          defaultSkillRating={skillRating}
+          email={user.email ?? ""}
+          callbackUrl={callbackUrl}
+        />
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Lock } from "lucide-react";
+import { CalendarPlus, Lock } from "lucide-react";
 import type { TournamentFormat, TournamentPlayType, TournamentStatus } from "@/generated/prisma/enums";
 import { saveTournament, type ActionState } from "@/lib/actions/tournament-actions";
 import {
@@ -16,6 +16,7 @@ import {
   totalMatchCount,
 } from "@/lib/tournament";
 import type { EditableField } from "@/lib/tournament";
+import { formatSkillBand, SKILL_RATINGS } from "@/lib/skill";
 import { cn } from "@/lib/utils";
 
 export type TournamentFormValues = {
@@ -24,7 +25,9 @@ export type TournamentFormValues = {
   description: string;
   format: TournamentFormat;
   playType: TournamentPlayType;
-  skillLevel: string;
+  /** Empty string means that side is open-ended; both empty means all levels. */
+  minSkillRating: string;
+  maxSkillRating: string;
   maxEntries: number;
   minEntries: number;
   /** In whole currency units — cents are the storage detail, not the input. */
@@ -133,19 +136,11 @@ export function TournamentForm({
           </Field>
         </div>
 
-        <Field
-          label="Skill level"
-          hint="Leave blank to open it to all levels."
-          locked={!can("skillLevel")}
-        >
-          <input
-            name="skillLevel"
-            defaultValue={initial.skillLevel}
-            placeholder="e.g. 3.5-4.0"
-            readOnly={!can("skillLevel")}
-            className={INPUT}
-          />
-        </Field>
+        <SkillBandField
+          min={initial.minSkillRating}
+          max={initial.maxSkillRating}
+          locked={!can("skillBand")}
+        />
       </Section>
 
       <Section title="Entries">
@@ -290,6 +285,12 @@ export function TournamentForm({
             />
           </Field>
         </div>
+
+        {/* Only while creating. Once the tournament exists its schedule is a
+            live thing — windows hold matches, and removing one unschedules
+            them — so it moves to the ScheduleEditor on the tournament's own
+            page, which edits them one at a time against real consequences. */}
+        {!initial.id && <NewWindowsField />}
       </Section>
 
       <Section title="Courts, pacing and prizes">
@@ -432,7 +433,157 @@ function Field({
   );
 }
 
+/**
+ * Windows of play, set while the tournament is being created.
+ *
+ * They belong here because a tournament that spans several mornings is that
+ * shape from the moment it is conceived, not after it is published — an admin
+ * who has to save first and schedule second has to remember to come back, and
+ * the window they meant is the one detail most likely to be forgotten.
+ *
+ * Rows post as parallel `sessionName`/`sessionStartAt`/`sessionEndAt` fields,
+ * read back with `getAll` in index order. Adding none is the normal case and
+ * means what it always meant: one continuous block from the start time.
+ */
+function NewWindowsField() {
+  type Row = { key: number; name: string; startAt: string; endAt: string };
+  const [rows, setRows] = useState<Row[]>([]);
+  const [nextKey, setNextKey] = useState(1);
+
+  const add = () => {
+    setRows((r) => [...r, { key: nextKey, name: `Round ${r.length + 1}`, startAt: "", endAt: "" }]);
+    setNextKey((k) => k + 1);
+  };
+  const update = (key: number, patch: Partial<Row>) =>
+    setRows((r) => r.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  const remove = (key: number) => setRows((r) => r.filter((row) => row.key !== key));
+
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Windows of play</p>
+
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No windows: play runs as one continuous block from the start time, and the courts are held for as long as
+          the draw is estimated to take. Add windows to spread it across mornings or days instead — you can also do
+          this later, and assign rounds to them once the draw exists.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Which round plays in which window is set after the draw is made, on the tournament&rsquo;s own page.
+        </p>
+      )}
+
+      {rows.map((row) => (
+        <div key={row.key} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+          <label className="text-xs font-medium text-muted-foreground">
+            Name
+            <input
+              name="sessionName"
+              value={row.name}
+              onChange={(e) => update(row.key, { name: e.target.value })}
+              required
+              maxLength={60}
+              placeholder="Round 1"
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Starts
+            <input
+              name="sessionStartAt"
+              type="datetime-local"
+              value={row.startAt}
+              onChange={(e) => update(row.key, { startAt: e.target.value })}
+              required
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Ends
+            <input
+              name="sessionEndAt"
+              type="datetime-local"
+              value={row.endAt}
+              onChange={(e) => update(row.key, { endAt: e.target.value })}
+              required
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => remove(row.key)}
+            className="rounded-full border border-destructive/40 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={add}
+        className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+      >
+        <CalendarPlus className="size-4" />
+        Add a window
+      </button>
+    </div>
+  );
+}
+
 /** A field the current status locks: shown as plain text, submitted unchanged. */
+/**
+ * The entry rule, as the two bounds that are actually enforced. There is no
+ * separate label to keep in step: what an admin sees here is `formatSkillBand`,
+ * the same string the browse card and the tournament page show, so a band can
+ * never read as one thing and admit another.
+ */
+function SkillBandField({ min, max, locked }: { min: string; max: string; locked: boolean }) {
+  const [lo, setLo] = useState(min);
+  const [hi, setHi] = useState(max);
+  const band = formatSkillBand(lo === "" ? null : Number(lo), hi === "" ? null : Number(hi));
+
+  if (locked) {
+    return (
+      <Field label="Skill level" locked>
+        <input type="hidden" name="minSkillRating" value={min} />
+        <input type="hidden" name="maxSkillRating" value={max} />
+        <p className="rounded-lg border border-input bg-secondary/50 px-3 py-2 text-sm text-muted-foreground">
+          {formatSkillBand(min === "" ? null : Number(min), max === "" ? null : Number(max))}
+        </p>
+      </Field>
+    );
+  }
+
+  return (
+    <Field
+      label="Skill level"
+      hint={`Only members rated inside this band can enter. Leave both blank for all levels. Currently: ${band}.`}
+    >
+      <div className="flex items-center gap-2">
+        <select name="minSkillRating" value={lo} onChange={(e) => setLo(e.target.value)} className={INPUT}>
+          <option value="">No minimum</option>
+          {SKILL_RATINGS.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label} — {r.blurb}
+            </option>
+          ))}
+        </select>
+        <span className="shrink-0 text-sm text-muted-foreground">to</span>
+        <select name="maxSkillRating" value={hi} onChange={(e) => setHi(e.target.value)} className={INPUT}>
+          <option value="">No maximum</option>
+          {SKILL_RATINGS.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label} — {r.blurb}
+            </option>
+          ))}
+        </select>
+      </div>
+    </Field>
+  );
+}
+
 function LockedValue({ name, value, display }: { name: string; value: string; display: string }) {
   return (
     <>

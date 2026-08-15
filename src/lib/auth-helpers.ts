@@ -31,14 +31,32 @@ export async function requireAdmin(): Promise<SessionUser> {
   return user;
 }
 
-export type ProfileCompletion = { name: string; phone: string; complete: boolean };
+/** `complete` is about booking a court, which is why an unset `skillRating`
+ *  doesn't affect it — a rating only ever gates entering a banded tournament,
+ *  and blocking a court booking on one would be a tax on people who just want
+ *  to play. It rides along here because every caller that wants one wants the
+ *  other, and because a session JWT would serve a stale copy after an edit. */
+export type ProfileCompletion = {
+  name: string;
+  phone: string;
+  skillRating: number | null;
+  complete: boolean;
+};
 
 /** Google OAuth never supplies a mobile number, so booking requires a separate
  *  registration step (see /register) that collects a complete name + mobile
  *  number before a customer's first reservation. */
 export async function getProfileCompletion(userId: string): Promise<ProfileCompletion> {
-  const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, phone: true } });
+  const dbUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, phone: true, skillRating: true },
+  });
   const name = dbUser?.name?.trim() ?? "";
   const phone = dbUser?.phone?.trim() ?? "";
-  return { name, phone, complete: name.length > 0 && phone.length > 0 };
+  return {
+    name,
+    phone,
+    skillRating: dbUser?.skillRating ?? null,
+    complete: name.length > 0 && phone.length > 0,
+  };
 }

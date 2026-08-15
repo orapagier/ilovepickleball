@@ -1156,7 +1156,8 @@ export type EditableField =
   | "description"
   | "format"
   | "playType"
-  | "skillLevel"
+  /** The min/max rating pair, together — they are one rule. */
+  | "skillBand"
   | "maxEntries"
   | "minEntries"
   | "entryFeeCents"
@@ -1183,7 +1184,7 @@ export const EDITABLE_BY_STATUS: Record<TournamentStatus, readonly EditableField
     "description",
     "format",
     "playType",
-    "skillLevel",
+    "skillBand",
     "maxEntries",
     "minEntries",
     "entryFeeCents",

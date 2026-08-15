@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Plus, Trophy } from "lucide-react";
 import type { TournamentFormat, TournamentStatus } from "@/generated/prisma/enums";
-import { getSessionUser } from "@/lib/auth-helpers";
+import { getProfileCompletion, getSessionUser } from "@/lib/auth-helpers";
 import { getSettings } from "@/lib/booking-data";
 import { formatDateTimeLabel } from "@/lib/format";
-import { getMyTournaments, listPublicTournaments, listSkillLevels } from "@/lib/tournament-data";
+import { formatSkillRating, SKILL_RATINGS } from "@/lib/skill";
+import { getMyTournaments, listPublicTournaments } from "@/lib/tournament-data";
 import { FORMAT_LABELS, TOURNAMENT_STATUS_LABELS } from "@/lib/tournament";
 import { cn } from "@/lib/utils";
 import { TournamentCard } from "@/components/tournament/tournament-card";
@@ -33,12 +34,16 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
   const skill = typeof searchParams.skill === "string" ? searchParams.skill : undefined;
   const current = { status, format, skill };
 
-  const [settings, user, skillLevels] = await Promise.all([getSettings(), getSessionUser(), listSkillLevels()]);
+  const [settings, user] = await Promise.all([getSettings(), getSessionUser()]);
+  const profile = user ? await getProfileCompletion(user.id) : null;
+  // The filter takes a rating and shows what admits it, rather than listing the
+  // bands themselves — "what can I actually enter" is the question being asked.
+  const openToRating = skill && SKILL_RATINGS.some((r) => String(r.value) === skill) ? Number(skill) : undefined;
   const [tournaments, mine] = await Promise.all([
     listPublicTournaments({
       status: STATUS_FILTERS.includes(status as TournamentStatus) ? (status as TournamentStatus) : undefined,
       format: FORMAT_FILTERS.includes(format as TournamentFormat) ? (format as TournamentFormat) : undefined,
-      skillLevel: skill,
+      openToRating,
     }),
     user ? getMyTournaments(user.id) : Promise.resolve([]),
   ]);
@@ -138,18 +143,25 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
           ))}
         </div>
 
-        {skillLevels.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            <FilterLink href={filterHref(current, "skill", undefined)} active={!skill}>
-              Any level
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterLink href={filterHref(current, "skill", undefined)} active={!openToRating}>
+            Any level
+          </FilterLink>
+          {SKILL_RATINGS.map((r) => (
+            <FilterLink
+              key={r.value}
+              href={filterHref(current, "skill", String(r.value))}
+              active={openToRating === r.value}
+            >
+              {r.label}
             </FilterLink>
-            {skillLevels.map((level) => (
-              <FilterLink key={level} href={filterHref(current, "skill", level)} active={skill === level}>
-                {level}
-              </FilterLink>
-            ))}
-          </div>
-        )}
+          ))}
+          {profile?.skillRating != null && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              you&rsquo;re {formatSkillRating(profile.skillRating)}
+            </span>
+          )}
+        </div>
       </section>
 
       {tournaments.length === 0 ? (

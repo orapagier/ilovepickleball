@@ -254,6 +254,10 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
                     {hasFee && ` · ${entry.feePaid ? "fee paid" : `${formatMoney(tournament.entryFeeCents, tournament.currency)} due`}`}
                     {" · "}
                     {entry.player1.email}
+                    {/* What the entrant gave to account for the fee. Staff
+                        settle payment by hand, so this is the thread to pull
+                        on when chasing one — worth showing until it's ticked. */}
+                    {hasFee && !entry.feePaid && entry.paymentReference && ` · ref ${entry.paymentReference}`}
                   </p>
                 </div>
                 <EntryAdminControls
@@ -310,7 +314,8 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
             description: tournament.description,
             format: tournament.format,
             playType: tournament.playType,
-            skillLevel: tournament.skillLevel,
+            minSkillRating: tournament.minSkillRating?.toString() ?? "",
+            maxSkillRating: tournament.maxSkillRating?.toString() ?? "",
             maxEntries: tournament.maxEntries,
             minEntries: tournament.minEntries,
             entryFee: (tournament.entryFeeCents / 100).toString(),

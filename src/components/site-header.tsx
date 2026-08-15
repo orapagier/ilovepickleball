@@ -37,6 +37,15 @@ export async function SiteHeader() {
             <span className="hidden sm:inline">My b</span>
             <span className="sm:hidden">B</span>ookings
           </Link>
+          {/* Signed-in only: there is nothing to show a stranger, and the page
+              would only bounce them to sign in. It earns a top-level link
+              because the skill level lives there, and a member who can't find
+              it can't enter a tournament with a level band. */}
+          {user && (
+            <Link href="/profile" className="transition-colors hover:text-foreground">
+              Profile
+            </Link>
+          )}
           {user?.role === "admin" && (
             <Link href="/admin" className="transition-colors hover:text-foreground">
               Admin
