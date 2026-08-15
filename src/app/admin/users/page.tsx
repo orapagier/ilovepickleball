@@ -91,7 +91,9 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
               key={u.id}
               className="surface-card flex flex-wrap items-center justify-between gap-3 p-3 transition-colors hover:bg-accent"
             >
-              <Link href={`/admin/users/${u.id}`} className="min-w-48 grow">
+              {/* `min-w-48` keeps the row from collapsing on a desktop, but a
+                  phone is narrower than that — hence the `max-w-full`. */}
+              <Link href={`/admin/users/${u.id}`} className="min-w-48 max-w-full grow">
                 <p className="flex flex-wrap items-center gap-2 font-medium">
                   {u.name || "Unnamed"}
                   {u.role === "admin" && (
@@ -108,7 +110,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
                     </span>
                   )}
                 </p>
-                <p className="text-sm text-muted-foreground">
+                <p className="break-words text-sm text-muted-foreground">
                   {u.email}
                   {u.phone ? ` · ${u.phone}` : ""} · joined {joinedFormat.format(u.createdAt)}
                 </p>

@@ -249,7 +249,7 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
               <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{entryName(entry)}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="break-words text-xs text-muted-foreground">
                     {entry.status === "waitlisted" ? "Waitlisted" : entry.seed ? `Seed ${entry.seed}` : "Registered"}
                     {hasFee && ` · ${entry.feePaid ? "fee paid" : `${formatMoney(tournament.entryFeeCents, tournament.currency)} due`}`}
                     {" · "}

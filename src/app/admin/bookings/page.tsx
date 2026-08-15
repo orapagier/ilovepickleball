@@ -83,11 +83,13 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
           });
           return (
             <li key={b.id} className="surface-card flex flex-wrap items-start justify-between gap-3 p-3">
-              <div>
+              {/* `min-w-0` + `break-words`: an email is one unbreakable token
+                  wider than a phone, and a flex item won't shrink below it. */}
+              <div className="min-w-0">
                 <p className="font-medium">
                   {b.court.name} — {dateLabel} ({b.hours}h)
                 </p>
-                <p className="text-sm text-muted-foreground">
+                <p className="break-words text-sm text-muted-foreground">
                   {b.customer.name || b.customer.email} · {formatMoney(totalCents, settings.currency)} ·{" "}
                   {bookingStatusLabel(b)}
                   {b.payMethod ? ` · ${PAY_METHOD_LABELS[b.payMethod] ?? b.payMethod}` : ""}

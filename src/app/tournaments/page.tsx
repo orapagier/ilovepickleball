@@ -7,25 +7,14 @@ import { formatDateTimeLabel } from "@/lib/format";
 import { formatSkillRating, SKILL_RATINGS } from "@/lib/skill";
 import { getMyTournaments, listPublicTournaments } from "@/lib/tournament-data";
 import { FORMAT_LABELS, TOURNAMENT_STATUS_LABELS } from "@/lib/tournament";
-import { cn } from "@/lib/utils";
 import { TournamentCard } from "@/components/tournament/tournament-card";
+import { TournamentFilters } from "@/components/tournament/tournament-filters";
 import { TournamentStatusBadge } from "@/components/tournament/status-badge";
 
 const STATUS_FILTERS: TournamentStatus[] = ["registration_open", "registration_closed", "in_progress", "completed"];
 // Derived from the label table rather than listed again, so a new format shows
 // up in the browse filter the moment it exists.
 const FORMAT_FILTERS = Object.keys(FORMAT_LABELS) as TournamentFormat[];
-
-/** Rebuild the current query string with one key changed, so each filter row
- *  narrows the others instead of replacing them. */
-function filterHref(current: Record<string, string | undefined>, key: string, value: string | undefined): string {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries({ ...current, [key]: value })) {
-    if (v) params.set(k, v);
-  }
-  const qs = params.toString();
-  return qs ? `/tournaments?${qs}` : "/tournaments";
-}
 
 export default async function TournamentsPage(props: PageProps<"/tournaments">) {
   const searchParams = await props.searchParams;
@@ -120,49 +109,36 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
         </section>
       )}
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          <FilterLink href={filterHref(current, "status", undefined)} active={!status}>
-            All stages
-          </FilterLink>
-          {STATUS_FILTERS.map((s) => (
-            <FilterLink key={s} href={filterHref(current, "status", s)} active={status === s}>
-              {TOURNAMENT_STATUS_LABELS[s]}
-            </FilterLink>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          <FilterLink href={filterHref(current, "format", undefined)} active={!format}>
-            Any format
-          </FilterLink>
-          {FORMAT_FILTERS.map((f) => (
-            <FilterLink key={f} href={filterHref(current, "format", f)} active={format === f}>
-              {FORMAT_LABELS[f]}
-            </FilterLink>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterLink href={filterHref(current, "skill", undefined)} active={!openToRating}>
-            Any level
-          </FilterLink>
-          {SKILL_RATINGS.map((r) => (
-            <FilterLink
-              key={r.value}
-              href={filterHref(current, "skill", String(r.value))}
-              active={openToRating === r.value}
-            >
-              {r.label}
-            </FilterLink>
-          ))}
-          {profile?.skillRating != null && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              you&rsquo;re {formatSkillRating(profile.skillRating)}
-            </span>
-          )}
-        </div>
-      </section>
+      <TournamentFilters
+        current={current}
+        note={
+          profile?.skillRating != null
+            ? `You're rated ${formatSkillRating(profile.skillRating)}.`
+            : null
+        }
+        groups={[
+          {
+            key: "status",
+            label: "Stage",
+            allLabel: "All stages",
+            options: STATUS_FILTERS.map((s) => ({ value: s, label: TOURNAMENT_STATUS_LABELS[s] })),
+          },
+          {
+            key: "format",
+            label: "Format",
+            allLabel: "Any format",
+            options: FORMAT_FILTERS.map((f) => ({ value: f, label: FORMAT_LABELS[f] })),
+          },
+          {
+            key: "skill",
+            label: "Level",
+            allLabel: "Any level",
+            // Reads as "what admits a 3.5 player", which is the question being
+            // asked — not "which band is this", which is the tournament's.
+            options: SKILL_RATINGS.map((r) => ({ value: String(r.value), label: `Open to ${r.label}` })),
+          },
+        ]}
+      />
 
       {tournaments.length === 0 ? (
         <div className="surface-card flex flex-col items-center gap-3 p-8 text-center">
@@ -190,16 +166,3 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
   );
 }
 
-function FilterLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-        active ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-accent",
-      )}
-    >
-      {children}
-    </Link>
-  );
-}

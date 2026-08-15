@@ -128,7 +128,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/20">
             <Trophy className="size-5 text-success" />
           </span>
-          <div>
+          <div className="min-w-0">
             <p className="font-bold text-success">
               You&rsquo;re up — {myLiveMatch.court?.name ?? "court to be called"}
             </p>

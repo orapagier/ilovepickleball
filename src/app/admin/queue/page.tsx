@@ -51,11 +51,13 @@ export default async function AdminQueuePage() {
           return (
             <li key={b.id} className="surface-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="font-semibold">
                     {b.court.name} — {dateLabel} ({b.hours}h)
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  {/* An email is one unbreakable token wider than a phone, and
+                      a flex item won't shrink below its longest word. */}
+                  <p className="break-words text-sm text-muted-foreground">
                     {b.customer.name || b.customer.email} · {formatMoney(totalCents, settings.currency)}
                   </p>
                   {b.customerNote && (
@@ -69,7 +71,7 @@ export default async function AdminQueuePage() {
 
               {b.status === "awaiting_confirmation" && (
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <p className="text-sm">
+                  <p className="min-w-0 break-words text-sm">
                     {b.payMethod ? `${PAY_METHOD_LABELS[b.payMethod] ?? b.payMethod} ref: ` : "Ref: "}
                     <strong>{b.payment?.referenceNumber}</strong>
                   </p>
