@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
       label: s.label,
       available: s.available,
       status: s.status,
+      bookedBy: s.bookedBy,
     })),
   );
 

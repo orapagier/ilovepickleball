@@ -13,10 +13,22 @@ export const MAX_SELECTED_SLOTS = 24;
 
 export type BusinessHourRow = { weekday: number; openMin: number; closeMin: number };
 export type BusyInterval = { start: Date; end: Date };
-/** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart from one still awaiting payment/call/verification. */
-export type StatusInterval = { start: Date; end: Date; confirmed: boolean };
+/** Like `BusyInterval`, but tagged so callers can tell a confirmed booking apart
+ *  from one still awaiting payment/call/verification. `bookedBy` is the
+ *  customer's display name, carried so the grid can name who holds a slot; it
+ *  is optional because not every reader of these intervals needs it. */
+export type StatusInterval = { start: Date; end: Date; confirmed: boolean; bookedBy?: string };
 export type SlotStatus = "available" | "confirmed" | "pending" | "past";
-export type DaySlot = { start: Date; end: Date; label: string; available: boolean; status: SlotStatus };
+/** `bookedBy` is empty unless the slot is held (`confirmed`/`pending`) *and*
+ *  the caller supplied names on `busy` — an elapsed slot never names anyone. */
+export type DaySlot = {
+  start: Date;
+  end: Date;
+  label: string;
+  available: boolean;
+  status: SlotStatus;
+  bookedBy: string;
+};
 export type DayAvailability = { date: string; slots: DaySlot[] };
 
 /** Slot times read as 12-hour with a meridiem, matching how every other page
@@ -39,7 +51,9 @@ export function isFree(start: Date, end: Date, busy: BusyInterval[]): boolean {
  * (even if it was once confirmed — history isn't bookable or noteworthy),
  * otherwise a confirmed booking wins over a merely-pending one, and a slot
  * too soon to book under the lead-time policy is bucketed with "past" too
- * since it's equally non-interactive right now.
+ * since it's equally non-interactive right now. When a booking does hold the
+ * slot, its customer's name comes back with the status so the caller can say
+ * who has it rather than only that it is taken.
  */
 function slotStatus(params: {
   startDt: DateTime;
@@ -48,13 +62,18 @@ function slotStatus(params: {
   busy: StatusInterval[];
   leadCutoff: DateTime;
   nowDt: DateTime;
-}): SlotStatus {
+}): { status: SlotStatus; bookedBy: string } {
   const { startDt, start, end, busy, leadCutoff, nowDt } = params;
-  if (startDt < nowDt) return "past";
-  if (busy.some((b) => b.confirmed && overlaps(start, end, b.start, b.end))) return "confirmed";
-  if (busy.some((b) => !b.confirmed && overlaps(start, end, b.start, b.end))) return "pending";
-  if (startDt < leadCutoff) return "past";
-  return "available";
+  if (startDt < nowDt) return { status: "past", bookedBy: "" };
+
+  const held = busy.filter((b) => overlaps(start, end, b.start, b.end));
+  const holder = held.find((b) => b.confirmed) ?? held[0];
+  if (holder) {
+    return { status: holder.confirmed ? "confirmed" : "pending", bookedBy: holder.bookedBy ?? "" };
+  }
+
+  if (startDt < leadCutoff) return { status: "past", bookedBy: "" };
+  return { status: "available", bookedBy: "" };
 }
 
 /** A back-to-back run of slots on one court: exactly one Booking row, whose
@@ -150,13 +169,14 @@ export function buildAvailability(params: {
           if (startDt.isValid) {
             const start = startDt.toJSDate();
             const end = new Date(start.getTime() + slotDurationMin * 60_000);
-            const status = slotStatus({ startDt, start, end, busy, leadCutoff, nowDt });
+            const { status, bookedBy } = slotStatus({ startDt, start, end, busy, leadCutoff, nowDt });
             slots.push({
               start,
               end,
               label: formatSlotLabel(startDt),
               available: status === "available",
               status,
+              bookedBy,
             });
           }
           minute += slotDurationMin;

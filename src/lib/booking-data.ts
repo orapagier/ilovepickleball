@@ -90,7 +90,8 @@ export async function getBusyIntervalsByCourt(
 }
 
 /** Same as `getBusyIntervals`, but tags each interval as confirmed or still-pending so
- *  callers (the availability API) can color slots instead of just marking them taken.
+ *  callers (the availability API) can color slots instead of just marking them taken,
+ *  and carries the customer's name so a taken slot can say who holds it.
  *  Display-only, so it takes the throttled sweep rather than forcing one. */
 export async function getBusyIntervalsWithStatus(courtId: number, from: Date, to: Date): Promise<StatusInterval[]> {
   await reapExpiredBookings();
@@ -101,7 +102,20 @@ export async function getBusyIntervalsWithStatus(courtId: number, from: Date, to
       endUtc: { gt: from },
       startUtc: { lt: to },
     },
-    select: { startUtc: true, endUtc: true, status: true },
+    select: {
+      startUtc: true,
+      endUtc: true,
+      status: true,
+      customer: { select: { name: true } },
+      tournament: { select: { name: true } },
+    },
   });
-  return rows.map((r) => ({ start: r.startUtc, end: r.endUtc, confirmed: r.status === "confirmed" }));
+  return rows.map((r) => ({
+    start: r.startUtc,
+    end: r.endUtc,
+    confirmed: r.status === "confirmed",
+    // A tournament's court block is owned by the admin who published it, but
+    // what the grid should say is which tournament has the court.
+    bookedBy: r.tournament?.name ?? r.customer.name.trim(),
+  }));
 }

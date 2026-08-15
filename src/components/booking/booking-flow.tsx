@@ -27,7 +27,15 @@ function sabbathBound(bound: { weekday: number; minute: number }): string {
 
 type Court = { id: number; name: string };
 type SlotStatus = "available" | "confirmed" | "pending" | "past";
-type Slot = { date: string; startMs: number; label: string; available: boolean; status: SlotStatus };
+type Slot = {
+  date: string;
+  startMs: number;
+  label: string;
+  available: boolean;
+  status: SlotStatus;
+  /** Who holds the slot — empty for anything that isn't currently booked. */
+  bookedBy: string;
+};
 
 /** A ticked cell, keyed the way the selection set holds it. */
 function pickKey(courtId: number, startMs: number): string {
@@ -75,6 +83,13 @@ const LOCKED_LABEL: Record<Exclude<SlotStatus, "available">, string> = {
   pending: "On hold",
   past: "Closed",
 };
+
+/** The second line of a taken cell: whoever holds it. A booking can't be made
+ *  without a name on the profile, so the fallback is only for legacy rows. */
+function holderLabel(slot: Slot): string {
+  if (slot.status === "past") return "Not bookable";
+  return slot.bookedBy || "A member";
+}
 
 export function BookingFlow({
   courts,
@@ -491,12 +506,25 @@ export function BookingFlow({
                         );
                       }
 
+                      /* Taken cells lead with their state and then name whoever
+                         holds it, mirroring the open cell's state-then-detail
+                         stack so a column reads down consistently. */
                       if (!slot.available) {
+                        const state = LOCKED_LABEL[slot.status as Exclude<SlotStatus, "available">];
+                        const holder = holderLabel(slot);
                         return (
                           <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
-                            <span className="flex h-11 w-full items-center justify-between gap-2 rounded-xl bg-muted/60 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">
-                              <span className="truncate">
-                                {LOCKED_LABEL[slot.status as Exclude<SlotStatus, "available">]}
+                            <span
+                              title={`${state} — ${holder}`}
+                              className="flex h-11 w-full items-center justify-between gap-1.5 rounded-xl bg-muted/60 px-2.5 text-muted-foreground sm:gap-2 sm:px-3"
+                            >
+                              <span className="flex min-w-0 flex-col items-start leading-tight">
+                                <span className="text-[9px] font-semibold uppercase tracking-[0.12em] opacity-70 sm:text-[10px]">
+                                  {state}
+                                </span>
+                                <span className="max-w-full truncate text-[11px] font-semibold sm:text-xs">
+                                  {holder}
+                                </span>
                               </span>
                               <Lock className="size-3.5 shrink-0 opacity-70" />
                             </span>
@@ -510,15 +538,22 @@ export function BookingFlow({
                             type="button"
                             onClick={() => toggleSlot(court.id, row.startMs)}
                             aria-pressed={isPicked}
-                            aria-label={`${court.name}, ${row.rangeLabel}, ${formatMoney(row.slotCents, currency)}`}
+                            aria-label={`${court.name}, ${row.rangeLabel}, open, ${formatMoney(row.slotCents, currency)}`}
                             className={cn(
-                              "flex h-11 w-full items-center justify-between gap-2 rounded-xl border px-3 text-xs font-bold transition-colors sm:text-sm",
+                              "flex h-11 w-full items-center justify-between gap-1.5 rounded-xl border px-2.5 transition-colors sm:gap-2 sm:px-3",
                               isPicked
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
                             )}
                           >
-                            <span className="truncate">{formatMoneyCompact(row.slotCents, currency)}</span>
+                            <span className="flex min-w-0 flex-col items-start leading-tight">
+                              <span className="text-[9px] font-semibold uppercase tracking-[0.12em] opacity-70 sm:text-[10px]">
+                                Open
+                              </span>
+                              <span className="max-w-full truncate text-xs font-bold sm:text-sm">
+                                {formatMoneyCompact(row.slotCents, currency)}
+                              </span>
+                            </span>
                             {isPicked ? (
                               <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary-foreground text-primary">
                                 <Check className="size-3.5" strokeWidth={3} />
