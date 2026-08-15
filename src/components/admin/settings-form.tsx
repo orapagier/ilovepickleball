@@ -20,6 +20,8 @@ type Settings = {
   qrphAccountNumber: string;
   holdMinutes: number;
   leadMinutes: number;
+  averageMatchMinutes: number;
+  courtChangeoverMinutes: number;
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -130,6 +132,37 @@ export function SettingsForm({ settings }: { settings: Settings }) {
               type="number"
               min="0"
               defaultValue={settings.leadMinutes}
+              required
+              className={inputClass}
+            />
+          </Field>
+        </div>
+      </section>
+
+      <section className="surface-card p-6">
+        <h2 className="text-lg font-semibold">Tournament pacing</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          How long the courts get blocked for a tournament. It never drives the running order — matches are always
+          called as courts free up — but it decides how much court time is held off the booking calendar. Any
+          tournament can override both.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="Average match length (minutes)">
+            <input
+              name="averageMatchMinutes"
+              type="number"
+              min="1"
+              defaultValue={settings.averageMatchMinutes}
+              required
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Court changeover (minutes)">
+            <input
+              name="courtChangeoverMinutes"
+              type="number"
+              min="0"
+              defaultValue={settings.courtChangeoverMinutes}
               required
               className={inputClass}
             />

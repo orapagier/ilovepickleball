@@ -37,6 +37,69 @@ enum PaymentStatus {
   rejected
 }
 
+/// Only two formats in v1. With two courts the total match count is the binding
+/// constraint: single elimination is `entries - 1` matches, round robin is
+/// `entries * (entries - 1) / 2`, which is why round robin is capped small.
+enum TournamentFormat {
+  single_elimination
+  round_robin
+  /// Two losses to go out. The losers bracket feeds a grand final the winners
+  /// bracket champion starts one win up — "twice to beat", locally.
+  double_elimination
+  /// Round-robin pools, then the top finishers of each into a knockout.
+  pool_to_bracket
+  /// A fixed number of rounds, paired by record. Nobody is eliminated.
+  swiss
+}
+
+/// Where a match sits in a two-bracket draw. Null for every format that has
+/// only one bracket, which is all of them except double elimination.
+enum MatchBracket {
+  winners
+  losers
+  /// Winners-bracket champion vs losers-bracket champion.
+  grand_final
+  /// Played only if the losers-bracket champion won the grand final — the
+  /// winners-bracket champion's second life. Walked over otherwise.
+  grand_final_reset
+}
+
+enum TournamentPlayType {
+  singles
+  doubles
+}
+
+enum TournamentStatus {
+  draft
+  registration_open
+  registration_closed
+  in_progress
+  completed
+  cancelled
+}
+
+enum RegistrationStatus {
+  registered
+  waitlisted
+  withdrawn
+  checked_in
+  no_show
+}
+
+enum MatchStatus {
+  pending
+  ready
+  in_progress
+  completed
+  walkover
+}
+
+/// Which side of a bracket match a winner advances into.
+enum MatchSlot {
+  A
+  B
+}
+
 model User {
   id        String   @id @default(cuid())
   googleSub String   @unique
@@ -49,40 +112,51 @@ model User {
 
   bookings         Booking[]
   verifiedPayments Payment[] @relation("VerifiedBy")
+
+  tournamentsCreated Tournament[]   @relation("TournamentCreatedBy")
+  entriesAsPlayer1   Registration[] @relation("EntryPlayer1")
+  entriesAsPlayer2   Registration[] @relation("EntryPlayer2")
 }
 
 model Court {
-  id        Int     @id @default(autoincrement())
-  name      String
-  active    Boolean @default(true)
-  sortOrder Int     @default(0)
+  id               Int     @id @default(autoincrement())
+  name             String
+  active           Boolean @default(true)
+  sortOrder        Int     @default(0)
   /// Google Calendar this court's bookings are mirrored into. Empty disables
   /// the mirror for this court; see src/lib/google-calendar.ts.
-  googleCalendarId String @default("")
+  googleCalendarId String  @default("")
 
-  bookings Booking[]
+  bookings          Booking[]
+  tournamentCourts  TournamentCourt[]
+  tournamentMatches Match[]
 }
 
 /// Singleton row (id is always 1) holding every admin-editable business setting.
 model Setting {
-  id                Int    @id @default(1)
-  businessName      String @default("Smash Zone Pickleball Tagum")
-  contactPerson     String @default("")
-  contactPhone      String @default("")
-  contactEmail      String @default("")
-  address           String @default("")
-  priceCentsPerHour Int    @default(30000)
-  currency          String @default("PHP")
-  timezone          String @default("Asia/Manila")
-  gcashName         String @default("")
-  gcashNumber       String @default("")
-  bdoAccountName    String @default("")
-  bdoAccountNumber  String @default("")
-  qrphAccountName   String @default("")
-  qrphAccountNumber String @default("")
-  holdMinutes       Int    @default(30)
-  leadMinutes       Int    @default(60)
-  slotDurationMin   Int    @default(60)
+  id                     Int    @id @default(1)
+  businessName           String @default("Smash Zone Pickleball Tagum")
+  contactPerson          String @default("")
+  contactPhone           String @default("")
+  contactEmail           String @default("")
+  address                String @default("")
+  priceCentsPerHour      Int    @default(30000)
+  currency               String @default("PHP")
+  timezone               String @default("Asia/Manila")
+  gcashName              String @default("")
+  gcashNumber            String @default("")
+  bdoAccountName         String @default("")
+  bdoAccountNumber       String @default("")
+  qrphAccountName        String @default("")
+  qrphAccountNumber      String @default("")
+  holdMinutes            Int    @default(30)
+  leadMinutes            Int    @default(60)
+  slotDurationMin        Int    @default(60)
+  /// How long one tournament match occupies a court, and how long it takes to
+  /// get the next pair on. Only used to size tournament court blocks — the
+  /// running order on the day is decided live. A tournament can override both.
+  averageMatchMinutes    Int    @default(25)
+  courtChangeoverMinutes Int    @default(5)
 }
 
 /// One row per weekday (0=Sun..6=Sat). Minutes are from local midnight, 0..1440.
@@ -117,23 +191,23 @@ model BlackoutDate {
 }
 
 model Booking {
-  id           String        @id @default(cuid())
-  courtId      Int
-  court        Court         @relation(fields: [courtId], references: [id])
-  customerId   String
-  customer     User          @relation(fields: [customerId], references: [id])
-  startUtc     DateTime      @db.Timestamptz(3)
-  endUtc       DateTime      @db.Timestamptz(3)
-  hours        Int
-  status       BookingStatus @default(pending_payment)
-  payMethod    PayMethod?
-  expiresAt    DateTime?     @db.Timestamptz(3)
-  customerNote String        @default("")
+  id            String        @id @default(cuid())
+  courtId       Int
+  court         Court         @relation(fields: [courtId], references: [id])
+  customerId    String
+  customer      User          @relation(fields: [customerId], references: [id])
+  startUtc      DateTime      @db.Timestamptz(3)
+  endUtc        DateTime      @db.Timestamptz(3)
+  hours         Int
+  status        BookingStatus @default(pending_payment)
+  payMethod     PayMethod?
+  expiresAt     DateTime?     @db.Timestamptz(3)
+  customerNote  String        @default("")
   /// Event id in the court's Google Calendar, empty when nothing is mirrored
   /// (sync disabled, court unmapped, or the event has been removed).
-  googleEventId String       @default("")
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+  googleEventId String        @default("")
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
 
   payment Payment?
 
@@ -143,14 +217,23 @@ model Booking {
   /// instead of once per booking. Null means "not part of a group" (either a
   /// solo booking, or the group's own anchor). See resolveGroupAnchorId in
   /// src/lib/booking-group.ts for how this is read back.
-  groupId String?
+  groupId      String?
   group        Booking?  @relation("BookingGroup", fields: [groupId], references: [id])
   groupMembers Booking[] @relation("BookingGroup")
+
+  /// Set when this booking is not a customer reservation but a court block held
+  /// by a published tournament, so regular members can't book over it. The
+  /// block is an ordinary Booking on purpose — every availability check, the
+  /// admin calendar, and the Google mirror already understand those. `customer`
+  /// is the admin who published; the grid names the tournament instead.
+  tournamentId String?
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id])
 
   @@index([courtId, startUtc, endUtc])
   @@index([status])
   @@index([customerId])
   @@index([groupId])
+  @@index([tournamentId])
 }
 
 /// At most one payment record per booking (upserted as the customer resubmits).
@@ -166,4 +249,193 @@ model Payment {
   verifiedBy      User?         @relation("VerifiedBy", fields: [verifiedById], references: [id])
   verifiedAt      DateTime?     @db.Timestamptz(3)
   rejectReason    String        @default("")
+}
+
+/// A tournament run by the facility. Admins own one end to end — configuration,
+/// bracket, court assignment, results, cancellation — and any signed-in member
+/// can browse and join. See docs/tournaments.md for the flow this models.
+model Tournament {
+  id                     String             @id @default(cuid())
+  name                   String
+  description            String             @default("")
+  format                 TournamentFormat
+  playType               TournamentPlayType
+  /// Empty means open to all levels; otherwise a free-text band like "3.5-4.0".
+  skillLevel             String             @default("")
+  /// One entry is one Registration row — a pair in doubles, one player in singles.
+  maxEntries             Int
+  /// Fewer registered entries than this when registration closes auto-cancels.
+  minEntries             Int
+  entryFeeCents          Int                @default(0)
+  currency               String             @default("PHP")
+  /// Null means the tournament opens for entries the moment it is published.
+  registrationOpensAt    DateTime?          @db.Timestamptz(3)
+  registrationClosesAt   DateTime           @db.Timestamptz(3)
+  startAt                DateTime           @db.Timestamptz(3)
+  /// Display/calendar estimate only — the running order on the day is decided
+  /// live by the court queue, never by this. See src/lib/tournament.ts.
+  estimatedEndAt         DateTime?          @db.Timestamptz(3)
+  status                 TournamentStatus   @default(draft)
+  /// When the last match was played. Distinct from `updatedAt`, which any edit
+  /// moves — this is what the deletion retention window counts from, so it has
+  /// to mean "finished" and nothing else.
+  completedAt            DateTime?          @db.Timestamptz(3)
+  prizeDescription       String             @default("")
+  /// Null falls back to the facility-wide figures on `Setting`. Set these when
+  /// a format plays faster or slower than the house average — they only affect
+  /// how long the courts are blocked for, never the running order.
+  averageMatchMinutes    Int?
+  courtChangeoverMinutes Int?
+  /// Format-specific shape. Each is read by exactly one format and ignored by
+  /// the rest; null means "use the default the format picks for this field
+  /// size" (see `resolveFormatConfig` in src/lib/tournament.ts).
+  ///
+  /// `poolCount`/`advancePerPool` shape a `pool_to_bracket` draw;
+  /// `swissRounds` is how many rounds a `swiss` draw plays.
+  poolCount              Int?
+  advancePerPool         Int?
+  swissRounds            Int?
+  createdById            String
+  createdBy              User               @relation("TournamentCreatedBy", fields: [createdById], references: [id])
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @db.Timestamptz(3)
+
+  courts        TournamentCourt[]
+  registrations Registration[]
+  matches       Match[]
+  sessions      TournamentSession[]
+  /// The court blocks this tournament holds on the booking calendar.
+  courtBlocks   Booking[]
+
+  @@index([status])
+  @@index([startAt])
+}
+
+/// A window of play — "Round 1, Monday 8–10am". A tournament with no sessions
+/// runs as one continuous block sized from the draw (the original behaviour);
+/// add sessions and play is confined to them instead, which is what lets a
+/// tournament span several mornings or several days.
+///
+/// A session holds matches, not times for individual matches: inside a window
+/// the live court queue still calls whoever is up as courts free, because match
+/// lengths vary too much to time them to the minute. See docs/tournaments.md.
+model TournamentSession {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  /// Free text as the admin names it — "Round 1", "Semifinals", "Sunday AM".
+  name         String
+  startAt      DateTime   @db.Timestamptz(3)
+  endAt        DateTime   @db.Timestamptz(3)
+  sortOrder    Int        @default(0)
+
+  matches Match[]
+
+  @@index([tournamentId, startAt])
+}
+
+/// Which courts a tournament reserves. A join table rather than an array column
+/// so the court reference is a real FK like every other court reference here.
+model TournamentCourt {
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  courtId      Int
+  court        Court      @relation(fields: [courtId], references: [id])
+
+  @@id([tournamentId, courtId])
+  @@index([courtId])
+}
+
+/// One entry in a tournament: a single player, or a pair in doubles. Partners
+/// are added directly at registration — there is no invite/accept step in v1.
+model Registration {
+  id           String             @id @default(cuid())
+  tournamentId String
+  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  player1Id    String
+  player1      User               @relation("EntryPlayer1", fields: [player1Id], references: [id])
+  player2Id    String?
+  player2      User?              @relation("EntryPlayer2", fields: [player2Id], references: [id])
+  status       RegistrationStatus @default(registered)
+  /// Assigned at bracket generation (random in v1), null before that.
+  seed         Int?
+  /// Which pool this entry was drawn into, for `pool_to_bracket`. Null for
+  /// every other format, and before the draw.
+  pool         Int?
+  feePaid      Boolean            @default(false)
+  registeredAt DateTime           @default(now()) @db.Timestamptz(3)
+
+  matchesAsSideA Match[] @relation("MatchSideA")
+  matchesAsSideB Match[] @relation("MatchSideB")
+  matchesWon     Match[] @relation("MatchWinner")
+
+  /// A backstop only — a player may also appear as someone else's partner, so
+  /// the "already entered" check in the register action looks at both columns.
+  @@unique([tournamentId, player1Id])
+  @@index([tournamentId, status])
+  @@index([player1Id])
+  @@index([player2Id])
+}
+
+/// One match. `nextMatchId`/`nextMatchSlot` wire an elimination bracket so a
+/// winner advances without the bracket shape being hardcoded in app logic;
+/// both are null for round robin, which has no advancement.
+model Match {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  /// Bracket round for single elimination; always 1 for round robin.
+  round        Int
+  /// Position within the round — bracket layout, and the queue's tiebreak.
+  matchNumber  Int
+
+  sideARegistrationId String?
+  sideA               Registration? @relation("MatchSideA", fields: [sideARegistrationId], references: [id])
+  sideBRegistrationId String?
+  sideB               Registration? @relation("MatchSideB", fields: [sideBRegistrationId], references: [id])
+
+  /// Set only when the match actually takes a court.
+  courtId Int?
+  court   Court? @relation(fields: [courtId], references: [id])
+
+  /// Which window of play this match belongs to. Null means unscheduled — it
+  /// can be called any time the tournament is running, which is also how every
+  /// match behaves in a tournament that defines no sessions at all.
+  sessionId String?
+  session   TournamentSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  status      MatchStatus @default(pending)
+  scheduledAt DateTime?   @db.Timestamptz(3)
+  completedAt DateTime?   @db.Timestamptz(3)
+  /// Free text as entered by staff, e.g. "11-7, 11-9".
+  score       String      @default("")
+
+  winnerRegistrationId String?
+  winner               Registration? @relation("MatchWinner", fields: [winnerRegistrationId], references: [id])
+
+  nextMatchId   String?
+  nextMatch     Match?     @relation("BracketAdvance", fields: [nextMatchId], references: [id])
+  feederMatches Match[]    @relation("BracketAdvance")
+  nextMatchSlot MatchSlot?
+
+  /// Where the *loser* goes — double elimination only, null everywhere else.
+  /// A second edge out of every match is what makes the losers bracket work:
+  /// one match feeds two others, so a single `nextMatchId` can't express it.
+  loserNextMatchId   String?
+  loserNextMatch     Match?     @relation("BracketDrop", fields: [loserNextMatchId], references: [id])
+  loserFeederMatches Match[]    @relation("BracketDrop")
+  loserNextMatchSlot MatchSlot?
+
+  /// Which half of a double-elimination draw this is. Null for single-bracket
+  /// formats.
+  bracket MatchBracket?
+
+  /// Which round-robin pool this match belongs to, for `pool_to_bracket`. Null
+  /// for the knockout matches that follow the pools, and for every other format.
+  pool Int?
+
+  @@unique([tournamentId, round, matchNumber])
+  @@index([sessionId])
+  @@index([tournamentId, status])
+  @@index([courtId])
 }

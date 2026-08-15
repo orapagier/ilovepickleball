@@ -8,6 +8,7 @@ import { PAY_METHOD_LABELS } from "@/lib/pay-method";
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/action-button";
 import { RescheduleControl } from "@/components/admin/reschedule-control";
+import { ExportLink } from "@/components/admin/export-link";
 import { adminCancelBooking, adminDeleteBooking } from "@/lib/actions/admin-actions";
 import { BOOKING_STATUS_LABELS, bookingStatusLabel } from "@/lib/booking-status";
 
@@ -34,7 +35,15 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-3xl font-bold">All bookings</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold">All bookings</h1>
+        {/* Carries the status filter so the file matches the chips above it.
+            It is not capped at the 200 rows shown here — an export is for the
+            spreadsheet, where the whole history is the point. */}
+        <ExportLink href={`/api/admin/export/bookings.csv${status === "all" ? "" : `?status=${status}`}`}>
+          Export CSV
+        </ExportLink>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (

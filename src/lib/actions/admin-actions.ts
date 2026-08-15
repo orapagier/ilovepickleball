@@ -251,11 +251,19 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
   const qrphAccountNumber = String(formData.get("qrphAccountNumber") ?? "").trim();
   const holdMinutes = Number(formData.get("holdMinutes"));
   const leadMinutes = Number(formData.get("leadMinutes"));
+  const averageMatchMinutes = Number(formData.get("averageMatchMinutes"));
+  const courtChangeoverMinutes = Number(formData.get("courtChangeoverMinutes"));
 
   if (!businessName) return { error: "Business name is required." };
   if (!Number.isFinite(priceInput) || priceInput <= 0) return { error: "Enter a valid price per hour." };
   if (!Number.isFinite(holdMinutes) || holdMinutes <= 0) return { error: "Enter a valid hold time (minutes)." };
   if (!Number.isFinite(leadMinutes) || leadMinutes < 0) return { error: "Enter a valid lead time (minutes)." };
+  if (!Number.isFinite(averageMatchMinutes) || averageMatchMinutes < 1) {
+    return { error: "Enter how many minutes a tournament match takes." };
+  }
+  if (!Number.isFinite(courtChangeoverMinutes) || courtChangeoverMinutes < 0) {
+    return { error: "Enter a valid court changeover time (minutes)." };
+  }
   try {
     new Intl.DateTimeFormat(undefined, { timeZone: timezone });
   } catch {
@@ -281,11 +289,16 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
       qrphAccountNumber,
       holdMinutes: Math.round(holdMinutes),
       leadMinutes: Math.round(leadMinutes),
+      averageMatchMinutes: Math.round(averageMatchMinutes),
+      courtChangeoverMinutes: Math.round(courtChangeoverMinutes),
     },
   });
   revalidatePath("/admin/settings");
   revalidatePath("/");
   revalidatePath("/book");
+  // Tournament court blocks are sized off these, so their views change too.
+  revalidatePath("/admin/tournaments/[id]", "page");
+  revalidatePath("/tournaments/[id]", "page");
   return { ok: true };
 }
 

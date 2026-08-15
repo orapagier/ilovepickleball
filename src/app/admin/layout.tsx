@@ -5,6 +5,7 @@ const NAV = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/queue", label: "Pending actions" },
   { href: "/admin/bookings", label: "All bookings" },
+  { href: "/admin/tournaments", label: "Tournaments" },
   { href: "/admin/users", label: "Registered users" },
   { href: "/admin/settings", label: "Settings" },
   { href: "/admin/pricing", label: "Pricing" },

@@ -49,6 +49,37 @@ export function formatDateLabelShort(iso: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(dt);
 }
 
+/** An instant rendered in the business timezone — "Sat, Aug 22, 9:00 AM".
+ * Tournament times are real instants rather than calendar dates, so unlike
+ * `formatDateLabel` this one does convert. */
+export function formatDateTimeLabel(date: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: tz,
+  }).format(date);
+}
+
+/** Just the clock time in the business timezone — the closing half of a range
+ * whose opening half already carried the date. */
+export function formatTimeOnly(date: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz }).format(date);
+}
+
+/** `formatDateTimeLabel` without the weekday, for tight rows. */
+export function formatDateTimeShort(date: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: tz,
+  }).format(date);
+}
+
 /** `iso` is a plain YYYY-MM-DD business-local calendar date; render its
  * components as-is, with no timezone conversion (parse and format both as
  * UTC so the date never shifts by a day). */

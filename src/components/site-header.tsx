@@ -29,6 +29,10 @@ export async function SiteHeader() {
           <Link href="/book" className="transition-colors hover:text-foreground">
             Book<span className="hidden sm:inline"> a court</span>
           </Link>
+          <Link href="/tournaments" className="transition-colors hover:text-foreground">
+            <span className="hidden sm:inline">Tournaments</span>
+            <span className="sm:hidden">Events</span>
+          </Link>
           <Link href="/my-bookings" className="transition-colors hover:text-foreground">
             <span className="hidden sm:inline">My b</span>
             <span className="sm:hidden">B</span>ookings
