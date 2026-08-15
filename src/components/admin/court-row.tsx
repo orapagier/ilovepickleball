@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { renameCourt, setCourtCalendar, toggleCourt, type ActionState } from "@/lib/actions/admin-actions";
+import { deleteCourt, renameCourt, setCourtCalendar, toggleCourt, type ActionState } from "@/lib/actions/admin-actions";
 import { ActionButton } from "@/components/action-button";
 import { cn } from "@/lib/utils";
 
@@ -9,7 +9,7 @@ export function CourtRow({
   court,
   calendarSyncConfigured,
 }: {
-  court: { id: number; name: string; active: boolean; googleCalendarId: string };
+  court: { id: number; name: string; active: boolean; googleCalendarId: string; bookingCount: number };
   calendarSyncConfigured: boolean;
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(renameCourt, {});
@@ -49,6 +49,20 @@ export function CourtRow({
       >
         {court.active ? "Disable" : "Enable"}
       </ActionButton>
+
+      {/* Only offered once a court has no bookings behind it — otherwise
+          disabling is the right move, and the action says so rather than
+          leaving a button that can only fail. */}
+      {court.bookingCount === 0 && (
+        <ActionButton
+          action={() => deleteCourt(court.id)}
+          confirmMessage={`Delete ${court.name}? It has no bookings, so nothing is lost — but this can't be undone.`}
+          pendingLabel="Deleting…"
+          className="rounded-full border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+        >
+          Delete
+        </ActionButton>
+      )}
 
       {state?.error && <span className="text-xs text-destructive">{state.error}</span>}
 

@@ -336,6 +336,49 @@ export async function renameCourt(_prev: ActionState, formData: FormData): Promi
   return { ok: true };
 }
 
+/**
+ * Remove a court outright. Only ever allowed for one nothing points at —
+ * a court carries its bookings' history, so anything with a booking, past or
+ * present, is disabled rather than deleted. This is for tidying up a row that
+ * was created by mistake.
+ */
+export async function deleteCourt(courtId: number): Promise<ActionState> {
+  await requireAdminOrThrow();
+  const court = await prisma.court.findUnique({
+    where: { id: courtId },
+    select: {
+      name: true,
+      _count: { select: { bookings: true, tournamentCourts: true, tournamentMatches: true } },
+    },
+  });
+  if (!court) return { error: "Court not found." };
+
+  if (court._count.bookings > 0) {
+    return {
+      error: `${court.name} has ${court._count.bookings} booking${court._count.bookings === 1 ? "" : "s"} on record — disable it instead, so their history stays intact.`,
+    };
+  }
+  if (court._count.tournamentCourts > 0 || court._count.tournamentMatches > 0) {
+    return { error: `${court.name} is reserved by a tournament — remove it from that tournament first.` };
+  }
+  if ((await prisma.court.count()) <= 1) {
+    return { error: "This is the only court — the booking grid needs at least one." };
+  }
+
+  await prisma.court.delete({ where: { id: courtId } });
+
+  // `addCourt` numbers a new court `count + 1`, so the remaining rows are
+  // closed up to keep that scheme from handing out a duplicate sortOrder.
+  const remaining = await prisma.court.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true } });
+  await prisma.$transaction(
+    remaining.map((c, i) => prisma.court.update({ where: { id: c.id }, data: { sortOrder: i + 1 } })),
+  );
+
+  revalidatePath("/admin/courts");
+  revalidatePath("/book");
+  return { ok: true };
+}
+
 /** Points a court at the Google Calendar its bookings are mirrored into.
  *  Blank unmaps it, which stops the mirror for that court. */
 export async function setCourtCalendar(_prev: ActionState, formData: FormData): Promise<ActionState> {

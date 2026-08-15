@@ -4,7 +4,10 @@ import { CourtRow } from "@/components/admin/court-row";
 import { AddCourtForm } from "@/components/admin/add-court-form";
 
 export default async function AdminCourtsPage() {
-  const courts = await prisma.court.findMany({ orderBy: { sortOrder: "asc" } });
+  const courts = await prisma.court.findMany({
+    orderBy: { sortOrder: "asc" },
+    include: { _count: { select: { bookings: true } } },
+  });
   const calendarSyncConfigured = isCalendarSyncConfigured();
 
   return (
@@ -18,7 +21,11 @@ export default async function AdminCourtsPage() {
       )}
       <ul className="flex flex-col gap-3">
         {courts.map((c) => (
-          <CourtRow key={c.id} court={c} calendarSyncConfigured={calendarSyncConfigured} />
+          <CourtRow
+            key={c.id}
+            court={{ ...c, bookingCount: c._count.bookings }}
+            calendarSyncConfigured={calendarSyncConfigured}
+          />
         ))}
       </ul>
       <AddCourtForm />
