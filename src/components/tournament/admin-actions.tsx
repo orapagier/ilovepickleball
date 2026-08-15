@@ -6,11 +6,13 @@ import {
   adminWithdrawEntry,
   cancelTournament,
   closeRegistrationNow,
+  deleteTournament,
   publishTournament,
   setEntryFeePaid,
   startPlay,
   type ActionState,
 } from "@/lib/actions/tournament-actions";
+import { tournamentDeletability } from "@/lib/tournament";
 import { ActionButton } from "@/components/action-button";
 
 const PRIMARY =
@@ -24,8 +26,19 @@ const DANGER =
  * themselves re-check, but an admin shouldn't be shown a button that will
  * only tell them no.
  */
-export function TournamentAdminActions({ tournamentId, status }: { tournamentId: string; status: TournamentStatus }) {
+export function TournamentAdminActions({
+  tournamentId,
+  status,
+  completedAt,
+  updatedAt,
+}: {
+  tournamentId: string;
+  status: TournamentStatus;
+  completedAt: Date | null;
+  updatedAt: Date;
+}) {
   const [message, setMessage] = useState<string | null>(null);
+  const deletion = tournamentDeletability({ status, completedAt, updatedAt });
 
   const report = (run: () => Promise<ActionState>) => async () => {
     const res = await run();
@@ -73,7 +86,26 @@ export function TournamentAdminActions({ tournamentId, status }: { tournamentId:
             Cancel tournament
           </ActionButton>
         )}
+
+        {deletion.deletable && (
+          <ActionButton
+            action={() => deleteTournament(tournamentId)}
+            confirmMessage="Delete this tournament for good? Its entries, matches, schedule and court blocks all go with it, and there is no undo. Export anything you still need first."
+            pendingLabel="Deleting…"
+            className={DANGER}
+          >
+            Delete tournament
+          </ActionButton>
+        )}
       </div>
+
+      {/* A finished tournament inside the retention window gets the reason
+          instead of a button, so the wait is visible rather than looking like
+          the option was never there. Every other refusal is a dead end an
+          admin can't act on, so it stays quiet. */}
+      {!deletion.deletable && status === "completed" && (
+        <p className="text-sm text-muted-foreground">{deletion.reason}</p>
+      )}
       {message && <p className="text-sm text-success">{message}</p>}
     </div>
   );

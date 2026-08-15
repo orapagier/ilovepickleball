@@ -298,6 +298,33 @@ to `startAt` or the court list needs. Cancelling or finishing a tournament
 releases the blocks (cancelled, never deleted, so the calendar mirror is told to
 drop their events).
 
+## Deleting a tournament
+
+`tournamentDeletability` decides, and `deleteTournament` enforces:
+
+- **Cancelled** — deletable straight away. Nothing was played, so there is no
+  record to keep.
+- **Completed** — deletable once `COMPLETED_RETENTION_DAYS` (30) have passed
+  since it finished. Results are worth keeping while anyone might still be
+  asking about them.
+- **Anything else** — refused. A tournament with play still ahead of it or
+  under way is cancelled first; deleting one out from under its entrants is
+  never the intended move.
+
+Finished tournaments from before `completedAt` existed fall back to
+`updatedAt`, which for a completed tournament is the status write itself.
+
+The delete cascades to entries, matches and windows through the schema, but
+**not** to the court blocks: `Booking.tournamentId` is `ON DELETE SET NULL`, so
+they would survive as orphaned bookings owned by whichever admin published.
+`deleteTournament` removes them explicitly first. They carry no payment and no
+customer intent — they exist only so availability checks can see them.
+
+There is no soft delete and no undo, which is why the admin view points at the
+CSV export in the same breath, and why the button appears only when the delete
+would actually succeed. A completed tournament still inside its window shows
+how long is left instead of a button that could only say no.
+
 ## The sweep
 
 This deployment has no long-running process to hang a cron job on, so deadlines

@@ -193,7 +193,12 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
             ? `Published and listed, but nobody can enter until ${formatDateTimeLabel(tournament.registrationOpensAt!, tz)} — that's the "registration opens" date set below. Clear it to take entries straight away.`
             : NEXT_STEP[tournament.status]}
         </p>
-        <TournamentAdminActions tournamentId={tournament.id} status={tournament.status} />
+        <TournamentAdminActions
+          tournamentId={tournament.id}
+          status={tournament.status}
+          completedAt={tournament.completedAt}
+          updatedAt={tournament.updatedAt}
+        />
         <div className="flex flex-wrap gap-3 text-sm">
           <Link href={`/tournaments/${tournament.id}`} className="font-semibold text-primary hover:underline">
             Member view →

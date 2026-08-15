@@ -467,7 +467,10 @@ export async function deleteTournament(tournamentId: string): Promise<ActionStat
   await prisma.tournament.delete({ where: { id: tournamentId } });
 
   revalidateTournamentViews();
-  return { ok: true, message: `“${tournament.name}” deleted.` };
+  /* Whoever did this was almost certainly standing on the tournament's own
+     page, which is now a 404 of the thing they just deleted. Leaving is the
+     only sensible next view, so the action decides it rather than each caller. */
+  redirect("/admin/tournaments");
 }
 
 /* ------------------------------------------------------------------ *
