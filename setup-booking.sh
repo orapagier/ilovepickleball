@@ -31,8 +31,10 @@
 #        and DATABASE_URL is prompted for, with a link to where to get it and a
 #        live connection test. An existing .env.local is never overwritten.
 #    GitHub CLI (gh)
-#        NOT optional here: this repo is PRIVATE, so the first clone needs
-#        credentials. gh is installed and authenticated BEFORE the clone.
+#        The repo is PUBLIC, so the clone itself needs no credentials and a
+#        fresh machine bootstraps unauthenticated. gh is still installed and
+#        offered BEFORE the clone, because its login flow uploads your SSH key
+#        for you — which is what makes `git push` work afterwards.
 #
 #  OPT-IN EXTRAS (off by default — none needed for the daily dev loop)
 #    --with-vercel    Vercel CLI, for deploys and pulling env vars from the
@@ -95,6 +97,21 @@ set_env_var() {
   rm -f "$tmp"
 }
 
+# Piped execution (`curl … | bash`) has NO source file, so BASH_SOURCE is unset
+# and `set -u` would abort here before a single flag is parsed. Everything that
+# wants the script's own path has to tolerate that.
+# Defined up here, ahead of the sudo guard below: that guard prints $SELF_NAME,
+# so under `set -u` a later definition would abort with "unbound variable"
+# instead of printing the instruction the user actually needs.
+SELF_SRC="${BASH_SOURCE[0]:-}"
+SELF_NAME="setup-booking.sh"
+SELF_URL="https://raw.githubusercontent.com/orapagier/smash-zone-booking/master/setup-booking.sh"
+if [ -n "$SELF_SRC" ]; then
+  ROOT="$(cd "$(dirname "$SELF_SRC")" && pwd)"
+else
+  ROOT="$PWD"   # piped: no script dir, so judge the repo from the working dir
+fi
+
 # Running the WHOLE script under sudo would leave the checkout, ~/.ssh and the
 # npm cache root-owned, so the normal user could neither push nor build.
 if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
@@ -128,17 +145,6 @@ else
   INTERACTIVE=0
 fi
 
-# Piped execution (`curl … | bash`) has NO source file, so BASH_SOURCE is unset
-# and `set -u` would abort here before a single flag is parsed. Everything that
-# wants the script's own path has to tolerate that.
-SELF_SRC="${BASH_SOURCE[0]:-}"
-SELF_NAME="setup-booking.sh"
-SELF_URL="https://raw.githubusercontent.com/orapagier/smash-zone-booking/master/setup-booking.sh"
-if [ -n "$SELF_SRC" ]; then
-  ROOT="$(cd "$(dirname "$SELF_SRC")" && pwd)"
-else
-  ROOT="$PWD"   # piped: no script dir, so judge the repo from the working dir
-fi
 REPO_URL="${BOOKING_REPO_URL:-https://github.com/orapagier/smash-zone-booking}"
 CLONE_DIR="${BOOKING_DIR:-$HOME/dev/booking}"
 
@@ -196,11 +202,13 @@ fi
 # Note what is NOT here: no build-essential, no pkg-config. Nothing in this
 # project compiles native code, unlike the axon workspace.
 APT_LOG="$(mktemp)"
+# </dev/null on both, for the same reason ssh gets -n below: under `curl … | bash`
+# stdin is this script's own source, and any child that reads it eats the rest.
 apt_install() {
-  $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >>"$APT_LOG" 2>&1 \
+  $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >>"$APT_LOG" 2>&1 </dev/null \
     || { warn "apt-get install failed for: $*"; tail -20 "$APT_LOG" >&2; return 1; }
 }
-apt_update() { $SUDO apt-get update -qq >>"$APT_LOG" 2>&1 || warn "apt-get update reported an error"; }
+apt_update() { $SUDO apt-get update -qq >>"$APT_LOG" 2>&1 </dev/null || warn "apt-get update reported an error"; }
 
 step "Base packages"
 apt_update
@@ -234,8 +242,8 @@ case ":$PATH:" in
 esac
 
 # ── GitHub CLI ───────────────────────────────────────────────────────────────
-# Before the clone, deliberately: smash-zone-booking is PRIVATE, so an
-# unauthenticated clone just fails with "repository not found".
+# Before the clone, deliberately: gh's login flow offers to upload the SSH key,
+# and it also carries credentials if this repo is ever flipped to private.
 if [ "$DO_GH" = 1 ]; then
   step "GitHub CLI"
   if command -v gh >/dev/null 2>&1; then
@@ -254,7 +262,8 @@ if [ "$DO_GH" = 1 ]; then
   if gh auth status >/dev/null 2>&1; then
     log "gh authenticated"
   else
-    warn "gh is not authenticated — required to clone this PRIVATE repo."
+    warn "gh is not authenticated (the clone works without it — this repo is public;"
+    warn "  logging in lets gh upload your SSH key, which is what 'git push' needs)."
     if [ "$INTERACTIVE" = 1 ]; then
       read -r -p "  Run 'gh auth login' now? [Y/n] " ans < /dev/tty
       case "${ans:-y}" in
@@ -287,7 +296,7 @@ else
       fi ;;
   esac
   [ "$CLONED" -eq 1 ] || git clone "$REPO_URL" "$CLONE_DIR" \
-    || err "clone failed. This repo is private — run 'gh auth login' first."
+    || err "clone failed — check your network, or 'gh auth login' if the repo is now private."
   is_booking_repo "$CLONE_DIR" || err "clone finished but $CLONE_DIR is not the booking repo"
   ROOT="$CLONE_DIR"; log "cloned to $ROOT"
 fi
@@ -312,7 +321,11 @@ fi
 # ── Git identity + SSH ───────────────────────────────────────────────────────
 if [ "$DO_GIT" = 1 ]; then
   step "Git identity & SSH"
-  GIT_NAME="${GIT_NAME:-$(git -C "$ROOT" config --get remote.origin.url 2>/dev/null | sed -nE 's#.*github\.com[:/]([^/]+)/.*#\1#p')}"
+  # The `|| true` is load-bearing: on a checkout with no origin remote this
+  # pipeline exits non-zero, and under `set -o pipefail` that failure propagates
+  # out of the command substitution to the ASSIGNMENT, which `set -e` then turns
+  # into a silent exit mid-script.
+  GIT_NAME="${GIT_NAME:-$(git -C "$ROOT" config --get remote.origin.url 2>/dev/null | sed -nE 's#.*github\.com[:/]([^/]+)/.*#\1#p' || true)}"
   GIT_EMAIL="${GIT_EMAIL:-}"
 
   git config --get user.name >/dev/null 2>&1 && log "user.name  $(git config --get user.name)" || {
@@ -359,7 +372,11 @@ if [ "$DO_GIT" = 1 ]; then
 
   # `ssh -T` exits 1 by design; capture instead of piping, or pipefail reports
   # a working key as broken.
-  SSH_OUT="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.com 2>&1 || true)"
+  # -n is load-bearing under `curl … | bash`: there, the script's own source text
+  # IS stdin, and ssh drains stdin to forward it to the remote. Without -n it
+  # swallows the whole rest of this file, bash then reads EOF and exits 0 —
+  # silently skipping Node, npm ci, .env.local and the summary, with no error.
+  SSH_OUT="$(ssh -n -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.com 2>&1 || true)"
   if [ "${SSH_OUT#*successfully authenticated}" != "$SSH_OUT" ]; then
     log "SSH key accepted by GitHub"
   else
@@ -367,7 +384,7 @@ if [ "$DO_GIT" = 1 ]; then
       gh ssh-key add "${SSH_KEY}.pub" --title "booking-dev-$(hostname)" >/dev/null 2>&1 \
         && log "SSH key uploaded to your GitHub account" || true
     fi
-    SSH_OUT="$(ssh -o BatchMode=yes -T git@github.com 2>&1 || true)"
+    SSH_OUT="$(ssh -n -o BatchMode=yes -T git@github.com 2>&1 || true)"
     if [ "${SSH_OUT#*successfully authenticated}" = "$SSH_OUT" ]; then
       echo ""
       echo -e "${B}Add this key at https://github.com/settings/ssh/new${N}"
@@ -425,8 +442,13 @@ if [ "$DO_INSTALL" = 1 ]; then
     # npm ci, not install: package-lock.json is committed. postinstall runs
     # `prisma generate`, which writes the client into src/generated/prisma.
     info "npm ci (this also runs 'prisma generate' via postinstall)"
+    # A failure here must NOT abort the run. npm ci is the one step that depends
+    # on a slow public registry, and on a flaky connection it times out; killing
+    # the script at that point would skip .env.local scaffolding and the summary
+    # entirely, leaving a half-configured checkout and no report of what is left.
+    # The summary below re-checks node_modules and prints the exact retry command.
     ( cd "$ROOT" && NPM_CONFIG_UPDATE_NOTIFIER=false npm ci --no-fund --no-audit --loglevel=error ) \
-      || err "npm ci failed — see the output above"
+      || warn "npm ci failed (see above) — continuing; retry with: cd $ROOT && npm ci"
   fi
   # Generated Prisma client lives in src/generated/prisma (see schema.prisma's
   # generator block), not node_modules/.prisma, so check the real path.
@@ -460,7 +482,7 @@ if [ "$DO_ENV" = 1 ]; then
   # Nothing in this project works without it: next dev, prisma migrate, prisma
   # studio and the backup scripts all fail immediately. So prompt rather than
   # leaving the user to find out at first run.
-  DBU="$(sed -nE 's/^DATABASE_URL=(.*)$/\1/p' "$ENVF" | head -1)"
+  DBU="$(sed -nE 's/^DATABASE_URL=(.*)$/\1/p' "$ENVF" | head -1 || true)"
   if [ -n "$DBU" ]; then
     log "DATABASE_URL already set"
   elif [ "$INTERACTIVE" = 1 ]; then
@@ -502,6 +524,13 @@ if [ "$DO_ENV" = 1 ]; then
       set_env_var "$ENVF" DATABASE_URL "$DBU"
       log "DATABASE_URL written to .env.local"
       # Prove it actually connects, now, while the context is still on screen.
+      # Only when prisma is actually installed: with no node_modules (npm ci
+      # skipped or failed) `npx` would try to FETCH prisma from the registry,
+      # which on the slow path hangs for minutes on what is only a nicety.
+      if [ ! -d "$ROOT/node_modules" ]; then
+        warn "skipping the connection test — dependencies are not installed yet"
+        break
+      fi
       info "testing the connection..."
       if ( cd "$ROOT" && npx prisma migrate status >/dev/null 2>&1 ); then
         log "connected — database reachable and migrations up to date"
@@ -580,13 +609,13 @@ GN="$(git config --get user.name || true)"; GE="$(git config --get user.email ||
 [ -n "$GN" ] && [ -n "$GE" ] && ok "git identity" "$GN <$GE>" \
   || { miss "git identity" "incomplete"; TODO+=("git config --global user.email 'you@example.com'"); }
 
-SSH_PROBE="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.com 2>&1 || true)"
+SSH_PROBE="$(ssh -n -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.com 2>&1 || true)"
 [ "${SSH_PROBE#*successfully authenticated}" != "$SSH_PROBE" ] && ok "github ssh" "key accepted" \
   || { miss "github ssh" "key not accepted"; TODO+=("Add ~/.ssh/id_ed25519.pub at https://github.com/settings/ssh/new"); }
 
 if command -v gh >/dev/null 2>&1; then
   gh auth status >/dev/null 2>&1 && ok "gh auth" "authenticated" \
-    || { miss "gh auth" "not authenticated"; TODO+=("Run 'gh auth login' (needed for this private repo)"); }
+    || { miss "gh auth" "not authenticated"; TODO+=("Run 'gh auth login' to upload your SSH key and enable 'git push'"); }
 fi
 
 echo ""
@@ -597,8 +626,8 @@ ok "repo" "$ROOT"
   || { miss "prisma client" "not generated"; TODO+=("cd $ROOT && npx prisma generate"); }
 
 if [ -f "$ROOT/.env.local" ]; then
-  DBU="$(sed -nE 's/^DATABASE_URL=(.*)$/\1/p' "$ROOT/.env.local" | head -1)"
-  NAS="$(sed -nE 's/^NEXTAUTH_SECRET=(.*)$/\1/p' "$ROOT/.env.local" | head -1)"
+  DBU="$(sed -nE 's/^DATABASE_URL=(.*)$/\1/p' "$ROOT/.env.local" | head -1 || true)"
+  NAS="$(sed -nE 's/^NEXTAUTH_SECRET=(.*)$/\1/p' "$ROOT/.env.local" | head -1 || true)"
   [ -n "$NAS" ] && ok ".env.local" "present, NEXTAUTH_SECRET set" || miss ".env.local" "NEXTAUTH_SECRET empty"
   if [ -z "$DBU" ]; then
     miss "DATABASE_URL" "empty"
@@ -606,7 +635,11 @@ if [ -f "$ROOT/.env.local" ]; then
   else
     ok "DATABASE_URL" "set"
     # Only meaningful once a URL exists; reports drift without applying anything.
-    if MIG="$(cd "$ROOT" && npx prisma migrate status 2>&1)"; then
+    # Gated on node_modules for the same reason as the connection test above:
+    # bare `npx prisma` with no local install goes to the network.
+    if [ ! -d "$ROOT/node_modules" ]; then
+      miss "migrations" "not checked (dependencies missing)"
+    elif MIG="$(cd "$ROOT" && npx prisma migrate status 2>&1)"; then
       ok "migrations" "database up to date"
     else
       case "$MIG" in
