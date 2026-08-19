@@ -2,8 +2,10 @@
   <!-- A pickleball: one perforated ball, nothing else. The holes are cut out
        rather than painted, so the mark sits on the header glass, the dusk
        panel or a home-screen tile without carrying a background of its own.
-       Rose is the light-theme primary, hard-coded: it reads on both themes,
-       and a CSS token cannot reach a file loaded as an image. -->
+       The colour is the ball's own — the optic yellow-green every outdoor
+       pickleball is moulded in — rather than a brand token, and it is
+       hard-coded because a CSS variable cannot reach a file loaded as an
+       image. It carries the header glass in either theme and the dusk panel. -->
   <mask id="holes">
     <circle cx="32" cy="32" r="30" fill="#fff" />
     <g fill="#000">
@@ -22,5 +24,5 @@
       <circle cx="20.40" cy="11.91" r="3.4" />
     </g>
   </mask>
-  <circle cx="32" cy="32" r="30" fill="#d5365c" mask="url(#holes)" />
+  <circle cx="32" cy="32" r="30" fill="#cfe31c" mask="url(#holes)" />
 </svg>
