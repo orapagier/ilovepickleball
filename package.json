@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "drive:auth": "node scripts/google-drive-auth.mjs",
+    "drive:auth": "node --env-file-if-exists=.env.local scripts/google-drive-auth.mjs",
     "backup:upload": "node scripts/backup-to-drive.mjs"
   },
   "dependencies": {
