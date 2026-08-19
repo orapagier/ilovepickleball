@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { parseSkillRating } from "@/lib/skill";
+import { readAvatar } from "@/lib/avatar";
 
 export type ActionState = { error?: string; ok?: boolean };
 
@@ -67,11 +68,19 @@ export async function updateProfile(_prev: ActionState, formData: FormData): Pro
   const skillRating = parseSkillRating(formData.get("skillRating"));
   if (skillRating === undefined) return { error: "Pick a skill level from the list, or leave it unset." };
 
-  await prisma.user.update({ where: { id: user.id }, data: { name, phone, skillRating } });
+  const avatar = readAvatar(formData.get("image"));
+  if (avatar.error) return { error: avatar.error };
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { name, phone, skillRating, ...(avatar.image === undefined ? {} : { image: avatar.image }) },
+  });
   /* The rating decides which tournaments are enterable and the browse filter
-     reads it, so both tournament views are stale the moment it changes. */
+     reads it, so both tournament views are stale the moment it changes. The
+     picture reaches the homepage as soon as they win something, so that too. */
   revalidatePath("/profile");
   revalidatePath("/book");
   revalidatePath("/tournaments");
+  revalidatePath("/");
   return { ok: true };
 }

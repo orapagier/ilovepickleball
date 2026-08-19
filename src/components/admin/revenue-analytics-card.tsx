@@ -39,16 +39,16 @@ export function RevenueAnalyticsCard({ stats, currency }: { stats: DashboardStat
   return (
     <div className="surface-card flex flex-col gap-4 p-5">
       <div>
-        <h2 className="font-display text-lg font-bold">Revenue Analytics</h2>
+        <h2 className="text-lg font-bold">Revenue Analytics</h2>
         <p className="text-sm text-muted-foreground">Earnings overview &amp; projections</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-xl bg-success/10 p-4 text-center">
+        <div className="rounded-md bg-success/10 p-4 text-center">
           <p className="text-2xl font-bold text-success">{formatMoney(stats.netRevenueCents, currency)}</p>
           <p className="mt-1 text-xs font-medium text-success/80">Net Club Revenue (this period)</p>
         </div>
-        <div className="rounded-xl bg-primary/10 p-4 text-center">
+        <div className="rounded-md bg-primary/10 p-4 text-center">
           <p className="text-2xl font-bold text-primary">{stats.periodBookings}</p>
           <p className="mt-1 text-xs font-medium text-primary/80">Total Bookings</p>
         </div>
@@ -66,7 +66,7 @@ export function RevenueAnalyticsCard({ stats, currency }: { stats: DashboardStat
       {hasRevenue ? (
         <RevenueChart daily={stats.dailyRevenue} avgPerDay={stats.avgProjectedCentsPerDay} />
       ) : (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-muted/40 py-10 text-center">
+        <div className="flex flex-col items-center justify-center gap-2 rounded-md bg-muted/40 py-10 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <CircleDollarSign className="size-6" />
           </span>

@@ -31,7 +31,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
               type="time"
               name={`start-${i}`}
               defaultValue={minutesToTime(row.startMin)}
-              className="rounded border border-input bg-background px-2 py-1"
+              className="field field-sm"
             />
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -40,7 +40,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
               type="time"
               name={`end-${i}`}
               defaultValue={minutesToTime(row.endMin)}
-              className="rounded border border-input bg-background px-2 py-1"
+              className="field field-sm"
             />
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -48,7 +48,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
             <select
               name={`weekday-${i}`}
               defaultValue={row.weekday === null ? "" : String(row.weekday)}
-              className="rounded border border-input bg-background px-2 py-1"
+              className="field field-sm"
             >
               <option value="">Every day</option>
               {WEEKDAYS.map((name, d) => (
@@ -66,7 +66,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
               min="0"
               name={`price-${i}`}
               defaultValue={(row.priceCentsPerHour / 100).toFixed(2)}
-              className="w-24 rounded border border-input bg-background px-2 py-1"
+              className="field field-sm w-24"
             />
             /hour
           </label>
@@ -74,7 +74,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
             type="button"
             onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))}
             aria-label="Remove tier"
-            className="ml-auto rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            className="ml-auto rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="size-4" />
           </button>
@@ -84,7 +84,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
       <button
         type="button"
         onClick={() => setRows((r) => [...r, { key: nextKey.current++, ...DEFAULT_TIER }])}
-        className="w-fit rounded-full border border-border px-4 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+        className="btn btn-outline w-fit"
       >
         Add rate tier
       </button>
@@ -98,7 +98,7 @@ export function PricingForm({ tiers }: { tiers: Tier[] }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-fit rounded-full bg-primary px-6 py-2 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary w-fit"
       >
         {pending ? "Saving…" : "Save rates"}
       </button>

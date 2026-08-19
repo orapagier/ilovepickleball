@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { CalendarPlus, Lock } from "lucide-react";
+import { CalendarPlus, Lock, Trash2, Trophy } from "lucide-react";
 import type { TournamentFormat, TournamentPlayType, TournamentStatus } from "@/generated/prisma/enums";
 import { saveTournament, type ActionState } from "@/lib/actions/tournament-actions";
 import {
@@ -12,6 +12,7 @@ import {
   FORMAT_LABELS,
   MAX_ROUND_ROBIN_ENTRIES,
   maxSwissRounds,
+  placeLabel,
   PLAY_TYPE_LABELS,
   totalMatchCount,
 } from "@/lib/tournament";
@@ -37,6 +38,9 @@ export type TournamentFormValues = {
   startAt: string;
   courtIds: number[];
   prizeDescription: string;
+  /** One row per place awarded. `amount` is in whole currency units and empty
+   *  means the prize isn't money. */
+  prizes: { place: number; label: string; amount: string; description: string }[];
   /** Empty string means "inherit the facility default". */
   averageMatchMinutes: string;
   courtChangeoverMinutes: string;
@@ -46,8 +50,7 @@ export type TournamentFormValues = {
   swissRounds: string;
 };
 
-const INPUT =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm disabled:opacity-60 read-only:bg-secondary/50 read-only:text-muted-foreground";
+const INPUT = "field w-full read-only:bg-secondary/50 read-only:text-muted-foreground";
 
 /**
  * Create and edit in one form. Which fields it lets an admin touch comes
@@ -182,7 +185,7 @@ export function TournamentForm({
         </div>
 
         {format === "round_robin" && (
-          <p className="rounded-lg border border-border bg-secondary/60 p-3 text-xs text-muted-foreground">
+          <p className="rounded-2xl bg-secondary/60 p-4 text-xs text-muted-foreground">
             A round robin plays every pair, so {MAX_ROUND_ROBIN_ENTRIES} entries is already{" "}
             {(MAX_ROUND_ROBIN_ENTRIES * (MAX_ROUND_ROBIN_ENTRIES - 1)) / 2} matches through two courts — the cap for
             this format.
@@ -368,7 +371,13 @@ export function TournamentForm({
           </Field>
         </div>
 
-        <Field label="Prizes" locked={!can("prizeDescription")}>
+        <PrizesField initial={initial.prizes} currency={currency} locked={!can("prizes")} />
+
+        <Field
+          label="Extra prize notes"
+          hint="Anything that doesn't belong to one placing — trophies for every finalist, a raffle, where to collect."
+          locked={!can("prizeDescription")}
+        >
           <textarea
             name="prizeDescription"
             defaultValue={initial.prizeDescription}
@@ -385,7 +394,7 @@ export function TournamentForm({
       <button
         type="submit"
         disabled={pending || editable.length === 0}
-        className="self-start rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
+        className="btn btn-primary self-start"
       >
         {pending ? "Saving…" : initial.id ? "Save changes" : "Create draft"}
       </button>
@@ -513,7 +522,7 @@ function NewWindowsField() {
           <button
             type="button"
             onClick={() => remove(row.key)}
-            className="rounded-full border border-destructive/40 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
+            className="btn btn-danger btn-sm"
           >
             Remove
           </button>
@@ -523,7 +532,7 @@ function NewWindowsField() {
       <button
         type="button"
         onClick={add}
-        className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+        className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
       >
         <CalendarPlus className="size-4" />
         Add a window
@@ -532,7 +541,169 @@ function NewWindowsField() {
   );
 }
 
-/** A field the current status locks: shown as plain text, submitted unchanged. */
+/**
+ * The prize table, one row per place.
+ *
+ * Per place rather than one box of prose because a placing is a thing the draw
+ * produces: `finalPlacements` works out who finished third, and this is what
+ * says what third is worth, so the results page can put the two together. A
+ * single paragraph could only ever be printed *next* to the results.
+ *
+ * Rows post as parallel `prizePlace` / `prizeLabel` / `prizeAmount` /
+ * `prizeNote` fields, read back with `getAll` in index order — the same shape
+ * the windows-of-play rows use, for the same reason: a repeating group is not
+ * worth a JSON blob in a hidden input.
+ *
+ * Locked, the rows are plain text plus hidden inputs carrying exactly what is
+ * already stored, so re-saving a tournament whose prizes are locked isn't read
+ * by the server as an attempt to change them.
+ */
+function PrizesField({
+  initial,
+  currency,
+  locked,
+}: {
+  initial: TournamentFormValues["prizes"];
+  currency: string;
+  locked: boolean;
+}) {
+  type Row = { key: number; place: string; label: string; amount: string; description: string };
+  const [rows, setRows] = useState<Row[]>(() =>
+    initial.map((p, i) => ({
+      key: i,
+      place: String(p.place),
+      label: p.label,
+      amount: p.amount,
+      description: p.description,
+    })),
+  );
+  const [nextKey, setNextKey] = useState(initial.length);
+
+  const add = () => {
+    // The next place down, which is what an admin filling this in is almost
+    // always reaching for.
+    const used = rows.map((r) => Number(r.place)).filter((n) => Number.isInteger(n));
+    const place = String(Math.max(0, ...used) + 1);
+    setRows((r) => [...r, { key: nextKey, place, label: defaultPrizeLabel(Number(place)), amount: "", description: "" }]);
+    setNextKey((k) => k + 1);
+  };
+  const update = (key: number, patch: Partial<Row>) =>
+    setRows((r) => r.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  const remove = (key: number) => setRows((r) => r.filter((row) => row.key !== key));
+
+  if (locked) {
+    return (
+      <Field label="Prizes" locked>
+        {initial.map((p) => (
+          <span key={p.place}>
+            <input type="hidden" name="prizePlace" value={p.place} />
+            <input type="hidden" name="prizeLabel" value={p.label} />
+            <input type="hidden" name="prizeAmount" value={p.amount} />
+            <input type="hidden" name="prizeNote" value={p.description} />
+          </span>
+        ))}
+        <p className="field bg-secondary/50 text-muted-foreground w-full">
+          {initial.length === 0
+            ? "No prizes set."
+            : initial
+                .map((p) => `${p.label}${p.amount ? ` — ${currency} ${p.amount}` : ""}`)
+                .join(" · ")}
+        </p>
+      </Field>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-medium text-muted-foreground">Prizes</span>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No prizes named. Add one per placing — the results page pairs each with whoever finishes there.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Place 1 is the champion, 2 the runner-up. Leave the amount blank for a prize that isn&rsquo;t money.
+        </p>
+      )}
+
+      {rows.map((row) => (
+        <div key={row.key} className="grid gap-2 sm:grid-cols-[5rem_1fr_7rem_1fr_auto] sm:items-end">
+          <label className="text-xs font-medium text-muted-foreground">
+            Place
+            <input
+              name="prizePlace"
+              type="number"
+              min={1}
+              value={row.place}
+              onChange={(e) => update(row.key, { place: e.target.value })}
+              required
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Called
+            <input
+              name="prizeLabel"
+              value={row.label}
+              onChange={(e) => update(row.key, { label: e.target.value })}
+              maxLength={60}
+              placeholder={defaultPrizeLabel(Number(row.place))}
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Cash ({currency})
+            <input
+              name="prizeAmount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={row.amount}
+              onChange={(e) => update(row.key, { amount: e.target.value })}
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Also wins
+            <input
+              name="prizeNote"
+              value={row.description}
+              onChange={(e) => update(row.key, { description: e.target.value })}
+              maxLength={200}
+              placeholder="Trophy, paddle…"
+              className={`mt-1 ${INPUT}`}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => remove(row.key)}
+            aria-label={`Remove the prize for place ${row.place}`}
+            className="btn btn-danger btn-sm"
+          >
+            <Trash2 className="size-3.5" />
+            <span className="sm:hidden">Remove</span>
+          </button>
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={add}
+        className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+      >
+        <Trophy className="size-4" />
+        Add a prize
+      </button>
+    </div>
+  );
+}
+
+/** Mirrors `placeLabel` on the server so the placeholder an admin sees is the
+ *  label the server would fall back to if they leave it blank. */
+function defaultPrizeLabel(place: number): string {
+  return Number.isInteger(place) && place > 0 ? placeLabel(place) : "";
+}
+
 /**
  * The entry rule, as the two bounds that are actually enforced. There is no
  * separate label to keep in step: what an admin sees here is `formatSkillBand`,
@@ -549,7 +720,7 @@ function SkillBandField({ min, max, locked }: { min: string; max: string; locked
       <Field label="Skill level" locked>
         <input type="hidden" name="minSkillRating" value={min} />
         <input type="hidden" name="maxSkillRating" value={max} />
-        <p className="rounded-lg border border-input bg-secondary/50 px-3 py-2 text-sm text-muted-foreground">
+        <p className="field bg-secondary/50 text-muted-foreground w-full">
           {formatSkillBand(min === "" ? null : Number(min), max === "" ? null : Number(max))}
         </p>
       </Field>
@@ -588,7 +759,7 @@ function LockedValue({ name, value, display }: { name: string; value: string; di
   return (
     <>
       <input type="hidden" name={name} value={value} />
-      <p className="rounded-lg border border-input bg-secondary/50 px-3 py-2 text-sm text-muted-foreground">
+      <p className="field bg-secondary/50 text-muted-foreground w-full">
         {display}
       </p>
     </>

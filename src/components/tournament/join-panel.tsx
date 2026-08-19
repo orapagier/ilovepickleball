@@ -83,7 +83,7 @@ export function JoinPanel({
             action={() => withdrawFromTournament(tournamentId)}
             confirmMessage="Withdraw your entry from this tournament?"
             pendingLabel="Withdrawing…"
-            className="self-start rounded-full border border-border px-5 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+            className="btn btn-outline self-start"
           >
             Withdraw
           </ActionButton>
@@ -117,7 +117,7 @@ export function JoinPanel({
           </div>
           <Link
             href="/profile"
-            className="self-start rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+            className="btn btn-primary self-start"
           >
             Set my skill level
           </Link>
@@ -130,7 +130,7 @@ export function JoinPanel({
        self-declared and the honest answer to "that's wrong" is a person. */
     return (
       <div className="surface-card flex items-start gap-3 border-destructive/30 p-4 sm:p-5">
-        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-destructive/10">
           <Info className="size-4 text-destructive" />
         </span>
         <div>
@@ -167,7 +167,7 @@ export function JoinPanel({
             type="email"
             required
             placeholder="partner@example.com"
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            className="field w-full"
           />
           {/* No invite/accept step in v1: entering names your partner outright,
               so they need an account already and should know it's happening. */}
@@ -184,7 +184,7 @@ export function JoinPanel({
               sending it. Asking for a reference without saying where to pay is
               the one arrangement that guarantees a wrong answer. */}
           {payeeAccounts.length > 0 && (
-            <div className="mb-3 rounded-lg border border-border bg-secondary/50 p-3 text-sm">
+            <div className="mb-3 rounded-2xl bg-secondary/60 p-4 text-sm">
               <p className="text-muted-foreground">
                 Send the {entryFeeLabel} entry fee to:
               </p>
@@ -214,7 +214,7 @@ export function JoinPanel({
             required
             maxLength={60}
             placeholder={`${refSources} ref, or your mobile number`}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            className="field w-full"
           />
           {/* The desk settles fees by hand, so this is a thread to pull on
               rather than a verified payment — which is why a phone number is
@@ -234,7 +234,7 @@ export function JoinPanel({
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
+        className="btn btn-primary self-start"
       >
         {pending ? "Entering…" : "Enter"}
       </button>

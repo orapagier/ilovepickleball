@@ -138,7 +138,7 @@ function BracketMatch({ match }: { match: TournamentMatch }) {
   const decided = match.status === "completed" || match.status === "walkover";
 
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
+    <div className="rounded-md border border-border bg-card p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Match {match.matchNumber}

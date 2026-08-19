@@ -56,7 +56,7 @@ export function RecordScoreForm({
           name="score"
           required
           placeholder="11-7, 11-9"
-          className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground"
+          className="field mt-1 font-normal normal-case tracking-normal text-foreground w-full"
         />
       </label>
 
@@ -65,7 +65,7 @@ export function RecordScoreForm({
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
+        className="btn btn-primary"
       >
         {pending ? "Recording…" : "Record result"}
       </button>
@@ -96,7 +96,7 @@ export function WalkoverForm({
           name="noShowSide"
           value="A"
           disabled={pending}
-          className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          className="btn btn-outline btn-sm text-muted-foreground"
         >
           {sideAName}
         </button>
@@ -105,7 +105,7 @@ export function WalkoverForm({
           name="noShowSide"
           value="B"
           disabled={pending}
-          className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          className="btn btn-outline btn-sm text-muted-foreground"
         >
           {sideBName}
         </button>
@@ -136,7 +136,7 @@ export function AssignCourtForm({
           name="courtId"
           value={court.id}
           disabled={pending}
-          className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          className="btn btn-outline btn-sm text-muted-foreground"
         >
           Send to {court.name}
         </button>

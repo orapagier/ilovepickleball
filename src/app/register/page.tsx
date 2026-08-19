@@ -22,11 +22,13 @@ export default async function RegisterPage(props: PageProps<"/register">) {
   if (complete) redirect(callbackUrl);
 
   return (
-    <div className="grid flex-1 place-items-center court-panel px-4 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-navy-foreground/15 bg-background p-8 text-foreground shadow-lift">
-        <h1 className="text-2xl font-bold">Complete your profile</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {settings.businessName} requires your complete name and mobile number before you can book a court.
+    <div className="dusk-panel grid flex-1 place-items-center px-4 py-12">
+      <div className="surface-raised rise w-full max-w-md p-6 sm:p-8">
+        <p className="eyebrow">One last thing</p>
+        <h1 className="mt-4 text-2xl">Complete your profile</h1>
+        <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+          {settings.businessName} needs your full name and mobile number before your first booking — that is how
+          the staff know whose court it is.
         </p>
         <RegisterForm
           defaultName={name}

@@ -103,7 +103,7 @@ function SchedulePlan({
   const endAt = tournament.estimatedEndAt ?? new Date(tournament.startAt.getTime() + minutes * 60_000);
 
   return (
-    <div className="rounded-lg border border-border bg-secondary/60 p-3.5 text-sm">
+    <div className="rounded-2xl bg-secondary/60 p-4 text-sm">
       <p className="font-medium">
         {drawn ? `${entries} entries` : `Sized for a full field of ${entries}`} · {matches} matches ·{" "}
         {(minutes / 60).toFixed(minutes % 60 === 0 ? 0 : 1)}h on {courtCount}{" "}
@@ -324,6 +324,13 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
             startAt: toDateTimeLocalValue(tournament.startAt, tz),
             courtIds: tournament.courts.map((c) => c.courtId),
             prizeDescription: tournament.prizeDescription,
+            prizes: tournament.prizes.map((p) => ({
+              place: p.place,
+              label: p.label,
+              // Back to whole currency units, the way the form takes it.
+              amount: p.amountCents == null ? "" : (p.amountCents / 100).toString(),
+              description: p.description,
+            })),
             averageMatchMinutes: tournament.averageMatchMinutes?.toString() ?? "",
             courtChangeoverMinutes: tournament.courtChangeoverMinutes?.toString() ?? "",
             poolCount: tournament.poolCount?.toString() ?? "",

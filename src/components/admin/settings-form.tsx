@@ -26,14 +26,14 @@ type Settings = {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-sm font-medium">
+    <label className="flex flex-col gap-1.5 text-sm font-bold">
       {label}
       {children}
     </label>
   );
 }
 
-const inputClass = "rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal";
+const inputClass = "field font-normal";
 
 export function SettingsForm({ settings }: { settings: Settings }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(updateSettings, {});
@@ -176,7 +176,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-fit rounded-full bg-primary px-6 py-2 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary w-fit"
       >
         {pending ? "Saving…" : "Save settings"}
       </button>

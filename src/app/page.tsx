@@ -1,26 +1,26 @@
 import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
+import Image from "next/image";
+import { DateTime } from "luxon";
+import { ArrowRight, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
 import {
-  ArrowRight,
-  CalendarCheck,
-  Clock,
-  ExternalLink,
-  Mail,
-  MapPin,
-  Phone,
-  ShieldCheck,
-  Sparkles,
-  Trophy,
-  User,
-  Wallet,
-  Zap,
-} from "lucide-react";
-import { getSettings, getActiveCourts, getBusinessHours, getPriceTiers } from "@/lib/booking-data";
+  getSettings,
+  getActiveCourts,
+  getBusinessHours,
+  getPriceTiers,
+  getBlackoutDateSet,
+  getBusyIntervalsByCourt,
+} from "@/lib/booking-data";
+import { buildAvailability, rangeUtcBounds, MAX_ADVANCE_DAYS, type BusinessHourRow } from "@/lib/scheduling";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { summarizeHours, closedWindowLabel } from "@/lib/hours-summary";
-import { formatMoney, formatMinuteOfDay } from "@/lib/format";
+import { formatMoney, formatMinuteOfDay, splitMoney } from "@/lib/format";
 import { minTierRateCents, groupTiersByWeekday } from "@/lib/pricing";
+import { getLatestChampion, getTournamentPromo } from "@/lib/tournament-data";
+import { TournamentPromo } from "@/components/tournament/tournament-promo";
+import { ChampionCard } from "@/components/tournament/champion-card";
+import { HeroBooking, type OpenHour } from "@/components/hero-booking";
 
 const HERO_IMAGE_PATH = path.join(process.cwd(), "public", "hero-court.jpg");
 
@@ -39,238 +39,316 @@ function mapsEmbedUrl(address: string): string {
   return `https://www.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
 }
 
+/**
+ * Today's remaining hours, with how many courts are still free in each.
+ *
+ * One query for every court's bookings, then the same `buildAvailability` the
+ * booking grid runs — so the homepage can never disagree with the page it sends
+ * people to. Slots already gone (past, or inside the notice window) drop out;
+ * what's left is the strip in the hero.
+ */
+async function openHoursToday(params: {
+  courtIds: number[];
+  tz: string;
+  slotDurationMin: number;
+  leadMinutes: number;
+  hours: BusinessHourRow[];
+  blackouts: Set<string>;
+  todayISO: string;
+}): Promise<OpenHour[]> {
+  const { courtIds, tz, slotDurationMin, leadMinutes, hours, blackouts, todayISO } = params;
+  if (courtIds.length === 0) return [];
+
+  const { start, end } = rangeUtcBounds(tz, todayISO, todayISO);
+  const busyByCourt = await getBusyIntervalsByCourt(courtIds, start, end);
+  const now = new Date();
+
+  const byStart = new Map<number, OpenHour>();
+  for (const courtId of courtIds) {
+    const [day] = buildAvailability({
+      tz,
+      slotDurationMin,
+      leadMinutes,
+      hours,
+      blackouts,
+      busy: busyByCourt.get(courtId) ?? [],
+      fromISO: todayISO,
+      toISO: todayISO,
+      now,
+    });
+    for (const slot of day?.slots ?? []) {
+      if (slot.status === "past") continue;
+      const ms = slot.start.getTime();
+      const row = byStart.get(ms) ?? { startMs: ms, label: slot.label, free: [], courts: 0 };
+      row.courts += 1;
+      if (slot.available) row.free.push(courtId);
+      byStart.set(ms, row);
+    }
+  }
+
+  return [...byStart.values()].sort((a, b) => a.startMs - b.startMs);
+}
+
 export default async function Home() {
-  const [settings, courts, hours, tiers, user] = await Promise.all([
+  const [settings, courts, hours, tiers, user, promo, champion, blackouts] = await Promise.all([
     getSettings(),
     getActiveCourts(),
     getBusinessHours(),
     getPriceTiers(),
     getSessionUser(),
+    // Two aggregate queries, in parallel with everything else this page already
+    // waits on, so the tile costs the homepage no wall clock at all.
+    getTournamentPromo(),
+    getLatestChampion(),
+    getBlackoutDateSet(),
   ]);
+
+  const today = DateTime.now().setZone(settings.timezone);
+  const todayISO = today.toFormat("yyyy-LL-dd");
+  const openHours = await openHoursToday({
+    courtIds: courts.map((c) => c.id),
+    tz: settings.timezone,
+    slotDurationMin: settings.slotDurationMin,
+    leadMinutes: settings.leadMinutes,
+    hours,
+    blackouts,
+    todayISO,
+  });
+
   const hourLines = summarizeHours(hours);
   const closedLabel = closedWindowLabel(hours);
   const hasHeroImage = fs.existsSync(HERO_IMAGE_PATH);
-  const startingRateCents = minTierRateCents(tiers, settings.priceCentsPerHour);
+  const startingRate = splitMoney(minTierRateCents(tiers, settings.priceCentsPerHour), settings.currency);
   const rateGroups = groupTiersByWeekday(tiers);
+  const bookHref = user ? "/book" : "/signin";
+
+  /* Closed all day and "today is simply over" are different facts, and somebody
+     deciding whether to come down now needs the right one. */
+  const openAtAllToday =
+    !blackouts.has(todayISO) && hours.some((h) => h.weekday === today.weekday % 7);
+  const closedNote = openAtAllToday
+    ? "Every slot left today has already started. Pick a day ahead and the court is yours."
+    : "We're closed today. Pick a day ahead and the court is yours.";
 
   return (
-    <div className="flex flex-1 flex-col bg-background">
-      <section className="court-panel relative overflow-hidden">
+    <div className="flex flex-1 flex-col">
+      {/* ---------------------------------------------------------------- Hero */}
+      {/* The courts themselves at dusk, with the one thing a visitor came to
+          find out sitting in glass on top of them: what is free, and when. The
+          photograph carries the place; the card carries the answer. */}
+      <section className="dusk-panel relative isolate overflow-hidden">
         {hasHeroImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src="/hero-court.jpg"
-            alt="Pickleball court at Smash Zone Tagum"
-            className="absolute inset-0 size-full object-cover"
-          />
+          <>
+            <Image
+              src="/hero-court.jpg"
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="-z-20 object-cover object-center"
+            />
+            {/* An even scrim rather than a dark half: the courts are the same
+                photograph on the left of the frame as on the right, and burying
+                them under an opaque panel to seat the headline threw away the
+                only picture on the page. The type carries its own contrast
+                instead — see `.on-photo`. */}
+            <div className="absolute inset-0 -z-10 bg-gradient-to-b from-dusk/72 via-dusk/62 to-dusk/78 lg:bg-gradient-to-r lg:from-dusk/58 lg:via-dusk/50 lg:to-dusk/48" />
+          </>
         )}
-        {/* Two stacked washes rather than one flat opacity on the photo itself:
-            a left-to-right one keeps the headline legible over the brightest part
-            of the sky, a bottom one settles the rate card onto solid ground. Both
-            ride on the shared navy token so the same gradient composites over
-            either the photo or the plain court-panel fallback. */}
-        <div className="absolute inset-0 bg-gradient-to-r from-navy via-navy/85 to-navy/50" />
-        <div className="absolute inset-0 bg-gradient-to-t from-navy/70 via-transparent to-transparent" />
-
-        <div className="relative mx-auto grid max-w-6xl gap-10 px-4 py-20 md:grid-cols-[1.15fr_0.85fr] md:items-center md:py-28">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:py-28">
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-navy-foreground/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-navy-foreground/80">
-              <Sparkles className="size-3.5 text-primary" />
-              Tagum City · Davao del Norte
+            <p className="eyebrow eyebrow-on-dusk on-photo rise">Tagum City · Davao del Norte</p>
+            <h1
+              className="on-photo rise mt-5 text-[2.75rem] leading-[0.95] sm:text-6xl lg:text-[4.5rem]"
+              style={{ "--rise-delay": "80ms" } as React.CSSProperties}
+            >
+              {settings.businessName}
+            </h1>
+            <p
+              className="on-photo rise mt-5 max-w-md text-base leading-relaxed text-dusk-foreground/90 sm:text-lg"
+              style={{ "--rise-delay": "160ms" } as React.CSSProperties}
+            >
+              Courts by the hour, paid on your phone, held the moment you send the reference. Bring a paddle —
+              the net is already up.
             </p>
-            <h1 className="mt-5 text-4xl font-bold leading-[1.05] md:text-6xl">{settings.businessName}</h1>
-            <p className="mt-5 max-w-lg text-base text-navy-foreground/80 md:text-lg">
-              Book your court. Bring your paddle.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href={user ? "/book" : "/signin"}
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition-colors hover:opacity-90"
-              >
-                <CalendarCheck className="size-4" />
+
+            <div
+              className="rise mt-8 flex flex-wrap gap-3"
+              style={{ "--rise-delay": "220ms" } as React.CSSProperties}
+            >
+              <Link href={bookHref} className="btn btn-primary px-6 py-3.5">
                 {user ? "Book a court" : "Sign in to book"}
+                <ArrowRight className="size-4" />
               </Link>
-              <a
-                href="#details"
-                className="inline-flex items-center gap-2 rounded-full border border-navy-foreground/25 bg-navy-foreground/10 px-6 py-3 text-sm font-semibold text-navy-foreground backdrop-blur transition-colors hover:bg-navy-foreground/20"
-              >
-                View rates &amp; hours
+              <a href="#rates" className="btn btn-on-dusk px-6 py-3.5">
+                Rates &amp; hours
               </a>
             </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-medium text-navy-foreground/70">
-              <span className="inline-flex items-center gap-1.5">
-                <Zap className="size-3.5 text-primary" />
-                Instant online hold
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <ShieldCheck className="size-3.5 text-primary" />
-                GCash · BDO · QRPh
-              </span>
-            </div>
           </div>
 
-          <div className="rounded-2xl border border-navy-foreground/15 bg-navy-foreground/10 p-6 shadow-lift backdrop-blur">
-            <p className="text-xs font-semibold uppercase tracking-widest text-navy-foreground/70">Court rate</p>
-            <p className="mt-2 text-4xl font-bold md:text-5xl">
-              Starts at {formatMoney(startingRateCents, settings.currency)}
-              <span className="text-lg font-medium text-navy-foreground/70"> /Hour</span>
-            </p>
-            <dl className="mt-6 space-y-3 text-sm">
-              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
-                <dt className="text-navy-foreground/70">Courts available</dt>
-                <dd className="font-semibold">{courts.length}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
-                <dt className="text-navy-foreground/70">Slot length</dt>
-                <dd className="font-semibold">{settings.slotDurationMin} min</dd>
-              </div>
-              <div className="flex items-center justify-between gap-4 border-t border-navy-foreground/15 pt-3">
-                <dt className="text-navy-foreground/70">Minimum notice</dt>
-                <dd className="font-semibold">{settings.leadMinutes} min</dd>
-              </div>
-            </dl>
+          {/* The signature: real availability, not an illustration of it.
+              `min-w-0` because the card holds a swipeable date strip: a grid
+              item's automatic minimum is its content's min-content width, so
+              without it the column sizes to all thirty days and the card runs
+              off the side of a phone instead of scrolling inside itself. */}
+          <div className="min-w-0 lg:justify-self-end lg:w-full lg:max-w-md">
+            <HeroBooking
+              courts={courts.map((c) => ({ id: c.id, name: c.name }))}
+              dates={Array.from({ length: MAX_ADVANCE_DAYS + 1 }, (_, i) => today.plus({ days: i }).toFormat("yyyy-LL-dd"))}
+              initialHours={openHours}
+              closedNote={closedNote}
+              rate={startingRate}
+              signedIn={!!user}
+            />
           </div>
         </div>
       </section>
 
-      {/* A tinted band breaks the hero's dark panel from the white content below
-          with something other than a hard edge, and gives the value props their
-          own visual beat before the longer location/contact section. */}
-      <section className="border-b border-border bg-secondary/40">
-        <div className="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:grid-cols-3">
-          {[
-            {
-              icon: Zap,
-              title: "Instant confirmation",
-              body: "Tick your slots, pay online, and your court is held the moment we get your reference number.",
-            },
-            {
-              icon: Wallet,
-              title: "Pay your way",
-              body: "GCash, BDO, or QRPh/InstaPay online — or call ahead for cash on longer sessions.",
-            },
-            {
-              icon: CalendarCheck,
-              title: `${courts.length} ${courts.length === 1 ? "court" : "courts"}, ${settings.slotDurationMin}-min slots`,
-              body: "Book by the hour, any hour we're open — solo, with friends, or for a full event.",
-            },
-          ].map(({ icon: Icon, title, body }) => (
-            <div key={title} className="flex items-start gap-3.5">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Icon className="size-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="font-semibold">{title}</p>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* Directly under the hero: the one thing on this page that is different
+          this week, in front of the hours and rates a returning member has
+          already read. Renders nothing when there is no tournament to promote. */}
+      <TournamentPromo live={promo.live} open={promo.open} tz={settings.timezone} />
 
-      <section id="details" className="border-t border-border bg-secondary/40 px-4 py-16">
-        <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:gap-10">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Plan your visit</p>
-            <h2 className="mt-3 text-3xl font-bold leading-[1.05] md:text-4xl">Hours, rest day &amp; rates</h2>
-
-            <div className="mt-8 grid gap-6 sm:grid-cols-2">
-              <article className="surface-card p-6">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Clock className="size-4" />
+      {/* --------------------------------------------------------- How it works */}
+      {/* Numbered because booking genuinely is a sequence — the steps happen in
+          this order and you cannot pay before you have picked a slot. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
+          <p className="eyebrow">Booking a court</p>
+          <h2 className="mt-4 text-3xl sm:text-4xl">Three taps, then play</h2>
+          <ol className="mt-8 grid gap-4 sm:grid-cols-3 sm:gap-5">
+            {[
+              {
+                title: "Pick your slots",
+                body: `Choose a day, a court and as many ${settings.slotDurationMin}-minute slots in a row as you want.`,
+              },
+              {
+                title: "Pay on your phone",
+                body: "GCash, BDO or QRPh. Booking four hours or more? Call us and we'll arrange it instead.",
+              },
+              {
+                title: "Play",
+                body: `The court is held the moment your reference lands — ${settings.holdMinutes} minutes to pay before the slot goes back.`,
+              },
+            ].map(({ title, body }, i) => (
+              <li key={title} className="surface-card flex flex-col gap-2 p-5">
+                <span className="figure-display flex size-9 items-center justify-center rounded-full bg-primary/10 text-base text-primary">
+                  {i + 1}
                 </span>
-                <h3 className="mt-4 text-lg font-semibold">Opening hours</h3>
-                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                <h3 className="mt-1 text-lg">{title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------- Hours & rates */}
+      <section id="rates" className="scroll-mt-20 border-b border-border">
+        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:py-20 lg:grid-cols-[1fr_0.85fr] lg:gap-14">
+          <div>
+            <p className="eyebrow">Plan your visit</p>
+            <h2 className="mt-4 text-3xl sm:text-4xl">Hours &amp; rates</h2>
+
+            <div className="surface-card mt-7 divide-y divide-border">
+              <div className="p-5 sm:p-6">
+                <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  When we&rsquo;re open
+                </h3>
+                <dl className="mt-4 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
                   {hourLines.length > 0 ? (
-                    hourLines.map((line) => <li key={line}>{line}</li>)
+                    hourLines.map((line) => {
+                      const [day, ...rest] = line.split(": ");
+                      return (
+                        <div key={line} className="flex items-baseline justify-between gap-4 sm:justify-start">
+                          <dt className="w-20 shrink-0 text-sm font-bold">{day}</dt>
+                          <dd className="data-value text-xs text-muted-foreground">{rest.join(": ")}</dd>
+                        </div>
+                      );
+                    })
                   ) : (
-                    <li>Hours not set yet.</li>
+                    <p className="text-sm text-muted-foreground">Hours not set yet.</p>
                   )}
-                </ul>
-              </article>
-
-              <article className="surface-card p-6">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Trophy className="size-4" />
-                </span>
-                <h3 className="mt-4 text-lg font-semibold">Weekly rest day</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {closedLabel ? `Closed ${closedLabel}` : "Open every hour, every day."}
-                </p>
-                {closedLabel && <p className="mt-2 text-sm text-muted-foreground">Closed for Sabbath rest.</p>}
-              </article>
-            </div>
-
-            {/* Full width, not a peer of the short cards above — the daily bands are far
-                wordier than any of them and a one-quarter column left it lopsided. */}
-            <article className="mt-6 surface-card p-6">
-              <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Wallet className="size-4" />
-                </span>
-                <h3 className="text-lg font-semibold">Court rates</h3>
+                </dl>
+                {closedLabel && (
+                  <p className="mt-5 border-t border-border pt-3.5 text-sm text-muted-foreground">
+                    Closed <span className="font-bold text-foreground">{closedLabel}</span> for Sabbath rest.
+                  </p>
+                )}
               </div>
-              {rateGroups.length > 0 ? (
-                <>
-                  <div className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2">
-                    {rateGroups.map((group) => (
-                      <div key={group.label}>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                          {group.label}
-                        </p>
-                        <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
-                          {group.tiers.map((t) => (
-                            <li key={`${t.startMin}-${t.endMin}`}>
-                              {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}:{" "}
-                              {formatMoney(t.priceCentsPerHour, settings.currency)}/hr
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                  {/* A day-specific band overrides the every-day one, so say which wins
-                      rather than leaving two rates for the same hour unexplained. */}
-                  {rateGroups.length > 1 && (
-                    <p className="mt-5 text-xs text-muted-foreground">
-                      A day’s own rate applies instead of the every-day rate.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {formatMoney(settings.priceCentsPerHour, settings.currency)}/hr flat rate, every day
-                </p>
-              )}
-            </article>
+
+              <div className="p-5 sm:p-6">
+                <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  What it costs
+                </h3>
+                {rateGroups.length > 0 ? (
+                  <>
+                    <div className="mt-4 grid gap-x-10 gap-y-5 sm:grid-cols-2">
+                      {rateGroups.map((group) => (
+                        <div key={group.label}>
+                          <p className="text-sm font-bold">{group.label}</p>
+                          <dl className="mt-2 space-y-1.5">
+                            {group.tiers.map((t) => (
+                              <div
+                                key={`${t.startMin}-${t.endMin}`}
+                                className="flex items-baseline justify-between gap-3"
+                              >
+                                <dt className="data-value text-xs font-medium text-muted-foreground">
+                                  {formatMinuteOfDay(t.startMin)}–{formatMinuteOfDay(t.endMin)}
+                                </dt>
+                                <dd className="figure-display text-base">
+                                  {formatMoney(t.priceCentsPerHour, settings.currency)}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </div>
+                      ))}
+                    </div>
+                    {/* A day-specific band overrides the every-day one, so say which wins
+                        rather than leaving two rates for the same hour unexplained. */}
+                    {rateGroups.length > 1 && (
+                      <p className="mt-5 border-t border-border pt-3.5 text-xs text-muted-foreground">
+                        A day&rsquo;s own rate applies instead of the every-day rate.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-4">
+                    <span className="figure-display text-2xl">
+                      {formatMoney(settings.priceCentsPerHour, settings.currency)}
+                    </span>
+                    <span className="ml-1.5 text-xs font-medium text-muted-foreground">/hr, every day</span>
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Label, heading, then a card below at the same `mt-8` offset the left
-              column uses — so both first cards start on the same row instead of
-              one being pushed down by a paragraph the other side doesn't have.
-              The description moves inside the card, as its lead line. */}
+          {/* Events sit beside the rates because they are the same question asked
+              at a larger size — "can I have the courts, and what will it cost". */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Events &amp; groups</p>
-            <h2 className="mt-3 text-3xl font-bold leading-[1.05] md:text-4xl">Host an event</h2>
+            <p className="eyebrow">Events &amp; groups</p>
+            <h2 className="mt-4 text-3xl sm:text-4xl">Host an event</h2>
 
-            <div className="mt-8 surface-card p-6">
+            <div className="surface-card mt-7 p-5 sm:p-6">
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Planning a tournament, a group booking, a corporate team building or a special occasion? Talk to us
-                directly and we will block out the courts you need.
+                Planning a tournament, a group booking, a corporate team building or a birthday? Talk to us and
+                we&rsquo;ll block out the courts you need.
               </p>
-              <div className="mt-5 space-y-3">
+              <div className="mt-5 divide-y divide-border border-t border-border">
                 {[
-                  { key: "person", label: "Talk to", value: settings.contactPerson, icon: User, href: null },
+                  { key: "person", label: "Talk to", value: settings.contactPerson, icon: null, href: null },
                   {
                     key: "phone",
-                    label: "Call / SMS",
+                    label: "Call or SMS",
                     value: settings.contactPhone,
                     icon: Phone,
                     href: settings.contactPhone ? `tel:${settings.contactPhone.replace(/\s+/g, "")}` : null,
                   },
                   {
                     key: "email",
-                    label: "Email address",
+                    label: "Email",
                     value: settings.contactEmail,
                     icon: Mail,
                     href: settings.contactEmail ? `mailto:${settings.contactEmail}` : null,
@@ -282,20 +360,16 @@ export default async function Home() {
                   .map(({ key, label, value, icon: Icon, href }) => {
                     const body = (
                       <>
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                          <Icon className="size-4" />
+                        <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                          {label}
                         </span>
-                        <span className="min-w-0">
-                          <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                            {label}
-                          </span>
-                          <span className="block truncate font-semibold">{value}</span>
-                        </span>
+                        <span className="min-w-0 flex-1 truncate font-bold">{value}</span>
+                        {Icon && <Icon className="size-4 shrink-0 text-primary" />}
                       </>
                     );
-                    const className = "flex items-center gap-3 rounded-xl border border-border bg-secondary/40 p-4";
+                    const className = "flex items-center gap-3 py-3.5 text-sm";
                     return href ? (
-                      <a key={key} href={href} className={`${className} transition-colors hover:bg-accent`}>
+                      <a key={key} href={href} className={`${className} transition-colors hover:text-primary`}>
                         {body}
                       </a>
                     ) : (
@@ -306,103 +380,115 @@ export default async function Home() {
                   })}
               </div>
             </div>
+
+            {/* The space under the contact card, spent on the one thing this
+                page had nothing to say about: that tournaments are played here
+                and somebody wins them. Nothing at all until one has been. */}
+            {champion && <ChampionCard champion={champion} tz={settings.timezone} />}
           </div>
         </div>
       </section>
 
-      <section className="border-t border-border bg-secondary/40 px-4 py-16">
-        <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-center lg:gap-10">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">The home of pickleball</p>
-            <h2 className="mt-3 text-4xl font-bold leading-[1.05] md:text-5xl">{settings.businessName}</h2>
-            <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
-              {courts.length} dedicated {courts.length === 1 ? "court" : "courts"} built for the Tagum pickleball
-              community. Whether you are picking up a paddle for the first time or chasing a competitive third-shot
-              drop, there is a court here with your name on it — book it by the hour, any hour we are open.
-            </p>
-          </div>
-
-          {/* The address is the only thing the admin has to keep current: the
-              pin, the embed and the directions link are all keyed off it. Capped
-              narrower than the text column and pinned right, so it reads as a
-              supporting locator rather than competing with the headline. */}
-          <div className="surface-card overflow-hidden lg:max-w-sm lg:justify-self-end">
-            <div className="relative aspect-[4/3] w-full bg-muted">
-              {settings.address ? (
-                <>
-                  <iframe
-                    title={`Map to ${settings.businessName}`}
-                    src={mapsEmbedUrl(settings.address)}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    className="absolute inset-0 size-full border-0"
-                  />
-                  <a
-                    href={mapsSearchUrl(settings.address)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-lg bg-card/90 px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-card backdrop-blur transition-colors hover:bg-card"
-                  >
-                    Open in Maps
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                </>
-              ) : (
-                <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                  Add the court address in Settings to show the map.
-                </p>
-              )}
+      {/* ------------------------------------------------------------ Location */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
+          <div className="grid gap-8 lg:grid-cols-[1fr_0.85fr] lg:items-end lg:gap-14">
+            <div>
+              <p className="eyebrow">The home of pickleball in Tagum</p>
+              <h2 className="mt-4 text-3xl sm:text-4xl">Find us</h2>
+              <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
+                {courts.length} dedicated {courts.length === 1 ? "court" : "courts"} for the Tagum pickleball
+                community. Whether you&rsquo;re picking up a paddle for the first time or chasing a competitive
+                third-shot drop, there&rsquo;s a court here with your name on it.
+              </p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <MapPin className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Our location
-                  </p>
-                  <p className="truncate font-semibold">{settings.address || "Tagum City, Davao del Norte"}</p>
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+              <Link href={bookHref} className="btn btn-primary">
+                Book a court
+                <ArrowRight className="size-4" />
+              </Link>
               {settings.address && (
                 <a
                   href={mapsDirectionsUrl(settings.address)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide transition-colors hover:bg-accent"
+                  className="btn btn-outline"
                 >
-                  Directions
-                  <ArrowRight className="size-3.5" />
+                  Get directions
+                  <ExternalLink className="size-3.5" />
                 </a>
               )}
+            </div>
+          </div>
+
+          {/* The map, and only the map — the hero already shows what the place
+              looks like. The address is the one thing the admin has to keep
+              current: the pin, the embed and the directions link all key off it. */}
+          <div className="mt-8">
+            <div className="surface-card flex flex-col overflow-hidden">
+              <div className="relative aspect-[4/3] w-full flex-1 bg-muted md:aspect-[21/9]">
+                {settings.address ? (
+                  <>
+                    <iframe
+                      title={`Map to ${settings.businessName}`}
+                      src={mapsEmbedUrl(settings.address)}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      className="absolute inset-0 size-full border-0"
+                    />
+                    <a
+                      href={mapsSearchUrl(settings.address)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="glass-panel absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-card transition-colors hover:text-primary"
+                    >
+                      Open in Maps
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </>
+                ) : (
+                  <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                    Add the court address in Settings to show the map.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-start gap-3 border-t border-border p-4">
+                <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Our location
+                  </p>
+                  <p className="mt-0.5 font-bold">{settings.address || "Tagum City, Davao del Norte"}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8">
-          <div className="flex items-center gap-2 font-display text-sm font-bold text-foreground">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <CalendarCheck className="size-4" />
-            </span>
-            {settings.businessName}
-          </div>
-          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
-            <Link href="/" className="transition-colors hover:text-foreground">
+      {/* -------------------------------------------------------------- Footer */}
+      {/* Runs under the phone's tab bar rather than stopping above it, so the
+          dusk reaches the bottom edge and the bar frosts it. */}
+      <footer className="dusk-panel under-tabbar md:mb-0 md:pb-10">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-8 gap-y-5 px-4 pt-10">
+          <p className="font-display text-lg font-semibold">{settings.businessName}</p>
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-dusk-foreground/70">
+            <Link href="/" className="transition-colors hover:text-dusk-foreground">
               Home
             </Link>
-            <Link href="/book" className="transition-colors hover:text-foreground">
+            <Link href="/book" className="transition-colors hover:text-dusk-foreground">
               Book a court
             </Link>
-            <a href="#details" className="transition-colors hover:text-foreground">
+            <Link href="/tournaments" className="transition-colors hover:text-dusk-foreground">
+              Tournaments
+            </Link>
+            <a href="#rates" className="transition-colors hover:text-dusk-foreground">
               Rates &amp; hours
             </a>
           </nav>
-          <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} {settings.businessName}. All rights reserved.
+          <p className="text-xs text-dusk-foreground/50">
+            © {new Date().getFullYear()} {settings.businessName}
           </p>
         </div>
       </footer>

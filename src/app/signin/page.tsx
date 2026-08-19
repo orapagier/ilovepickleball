@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { getSettings } from "@/lib/booking-data";
@@ -12,25 +13,33 @@ export default async function SignInPage(props: PageProps<"/signin">) {
   if (user) redirect(callbackUrl);
 
   return (
-    <div className="grid flex-1 place-items-center court-panel px-4 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-navy-foreground/15 bg-background p-8 text-foreground shadow-lift">
-        <h1 className="text-2xl font-bold">{settings.businessName}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sign in with your Google account to reserve a court and manage your bookings.
+    <div className="dusk-panel grid flex-1 place-items-center px-4 py-14">
+      <div className="surface-raised rise w-full max-w-sm p-7 text-center sm:p-8">
+        <Image
+          src="/logo.png"
+          alt=""
+          width={64}
+          height={64}
+          className="mx-auto size-16 rounded-full object-cover ring-1 ring-border"
+        />
+        <h1 className="mt-5 text-2xl">{settings.businessName}</h1>
+        <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+          Sign in to reserve a court, pay from your phone and follow the tournaments you&rsquo;ve entered.
         </p>
 
         <form action={signInWithGoogle.bind(null, callbackUrl)}>
-          <button
-            type="submit"
-            className="mt-8 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
-          >
+          <button type="submit" className="btn btn-primary mt-7 w-full py-3.5">
             Continue with Google
           </button>
         </form>
 
+        <p className="mt-4 text-xs text-muted-foreground">
+          We only ever use your Google account to know who holds the booking.
+        </p>
+
         <Link
           href="/"
-          className="mt-6 block text-center text-sm text-muted-foreground underline-offset-4 hover:underline"
+          className="mt-6 inline-block text-sm font-bold text-primary underline-offset-4 hover:underline"
         >
           Back to home
         </Link>

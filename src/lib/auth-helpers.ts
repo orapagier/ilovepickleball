@@ -40,6 +40,11 @@ export type ProfileCompletion = {
   name: string;
   phone: string;
   skillRating: number | null;
+  /** The member's own picture: a data URL they uploaded, the Google avatar
+   *  their account arrived with, or empty. Read from the row rather than the
+   *  session for the same reason as the rest — a JWT would serve the old one
+   *  until they next signed in. */
+  image: string;
   complete: boolean;
 };
 
@@ -49,7 +54,7 @@ export type ProfileCompletion = {
 export async function getProfileCompletion(userId: string): Promise<ProfileCompletion> {
   const dbUser = await prisma.user.findUnique({
     where: { id: userId },
-    select: { name: true, phone: true, skillRating: true },
+    select: { name: true, phone: true, skillRating: true, image: true },
   });
   const name = dbUser?.name?.trim() ?? "";
   const phone = dbUser?.phone?.trim() ?? "";
@@ -57,6 +62,7 @@ export async function getProfileCompletion(userId: string): Promise<ProfileCompl
     name,
     phone,
     skillRating: dbUser?.skillRating ?? null,
+    image: dbUser?.image ?? "",
     complete: name.length > 0 && phone.length > 0,
   };
 }

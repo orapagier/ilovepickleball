@@ -11,12 +11,16 @@ import { cn } from "@/lib/utils";
  * Three categories with nineteen values between them is far too many chips to
  * lay out on a phone — they wrapped into a block of rows that read as noise and
  * pushed the actual tournaments below the fold. A native `<select>` collapses
- * each category to one control, and gets the platform's own picker on mobile
+ * each category to one control, and gets the platform's own picker on a phone
  * for free, which is a better list than anything drawn in CSS.
  *
- * Navigation stays URL-driven exactly as before: each change rewrites one query
- * key and keeps the rest, so the filters still narrow each other and any
- * combination is still linkable and back-button-able.
+ * The controls are pills like every other control in the app, and a category in
+ * force fills rose rather than merely tinting its border — on a phone held at
+ * arm's length a 1px colour change is not a state.
+ *
+ * Navigation stays URL-driven: each change rewrites one query key and keeps the
+ * rest, so the filters still narrow each other and any combination is still
+ * linkable and back-button-able.
  */
 export type FilterOption = { value: string; label: string };
 
@@ -64,67 +68,63 @@ export function TournamentFilters({
   const activeCount = groups.filter((g) => current[g.key]).length;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       {/* One line on every width: three columns on a phone, natural widths once
           there is room for them. */}
-      <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-end">
+      <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
         {groups.map((group) => {
           const value = current[group.key] ?? "";
           const active = Boolean(value);
           return (
-            <label key={group.key} className="min-w-0 sm:w-auto">
-              <span className="mb-1 block truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {group.label}
-              </span>
-              <span className="relative block">
-                <select
-                  value={value}
-                  onChange={(e) => router.push(hrefWith(basePath, current, group.key, e.target.value || undefined))}
-                  aria-label={group.label}
-                  className={cn(
-                    // `appearance-none` so the control matches the rest of the
-                    // site's inputs; the chevron below replaces the native one.
-                    "w-full appearance-none truncate rounded-lg border bg-background py-2 pl-2.5 pr-7 text-xs font-medium transition-colors",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-auto sm:pl-3 sm:pr-8 sm:text-sm",
-                    active
-                      ? "border-primary text-primary"
-                      : "border-input text-foreground hover:border-muted-foreground/50",
-                  )}
-                >
-                  <option value="">{group.allLabel}</option>
-                  {group.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  aria-hidden
-                  className={cn(
-                    "pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 sm:size-4",
-                    active ? "text-primary" : "text-muted-foreground",
-                  )}
-                />
-              </span>
-            </label>
+            <span key={group.key} className="relative block min-w-0 sm:w-auto">
+              <select
+                value={value}
+                onChange={(e) => router.push(hrefWith(basePath, current, group.key, e.target.value || undefined))}
+                aria-label={group.label}
+                className={cn(
+                  // `appearance-none` so the control matches the rest of the
+                  // site's controls; the chevron below replaces the native one.
+                  "w-full cursor-pointer appearance-none truncate rounded-full border py-2.5 pl-3.5 pr-8 text-xs font-bold transition-colors",
+                  // The native dropdown draws options on the control's own
+                  // colours in some browsers, which on a filled pill is white
+                  // on white. Name them.
+                  "[&>option]:bg-card [&>option]:font-medium [&>option]:text-foreground",
+                  "sm:w-auto sm:pl-4 sm:pr-9 sm:text-sm",
+                  active
+                    ? "border-transparent bg-primary text-primary-foreground shadow-glow"
+                    : "border-border bg-card text-foreground shadow-card hover:border-primary/40",
+                )}
+              >
+                <option value="">{group.allLabel}</option>
+                {group.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 sm:size-4",
+                  active ? "text-primary-foreground" : "text-muted-foreground",
+                )}
+              />
+            </span>
           );
         })}
+
+        {activeCount > 0 && (
+          <Link
+            href={basePath}
+            className="col-span-3 inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary/10 sm:col-auto"
+          >
+            <X className="size-3.5" />
+            Clear {activeCount === 1 ? "filter" : "filters"}
+          </Link>
+        )}
       </div>
 
-      {(activeCount > 0 || note) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {note && <span>{note}</span>}
-          {activeCount > 0 && (
-            <Link
-              href={basePath}
-              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-            >
-              <X className="size-3" />
-              Clear {activeCount === 1 ? "filter" : "filters"}
-            </Link>
-          )}
-        </div>
-      )}
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }

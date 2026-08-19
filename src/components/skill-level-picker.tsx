@@ -27,14 +27,14 @@ export function SkillLevelPicker({
   const option = findSkillOption(value === "" ? null : Number(value));
 
   return (
-    <div className="text-sm font-medium text-foreground">
+    <div className="text-sm font-bold text-foreground">
       <label htmlFor={name}>Skill level</label>
       <select
         id={name}
         name={name}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+        className="field mt-1.5 w-full"
       >
         <option value="">I&rsquo;m not sure yet</option>
         {SKILL_RATINGS.map((r) => (
@@ -45,7 +45,7 @@ export function SkillLevelPicker({
       </select>
 
       {option ? (
-        <div className="mt-2 rounded-lg border border-border bg-secondary/40 p-3">
+        <div className="mt-2.5 rounded-2xl bg-secondary/60 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             A {option.label} player
           </p>

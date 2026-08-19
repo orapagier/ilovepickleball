@@ -25,8 +25,10 @@ import {
   MAX_ROUND_ROBIN_ENTRIES,
   maxSwissRounds,
   MIN_TOURNAMENT_ENTRIES,
+  placeLabel,
   tournamentDeletability,
   type EditableField,
+  type PrizeRow,
 } from "@/lib/tournament";
 import {
   canEnterAtRating,
@@ -48,6 +50,10 @@ async function requireAdminOrThrow(): Promise<SessionUser> {
 }
 
 function revalidateTournamentViews(tournamentId?: string) {
+  // The homepage carries the promo tile, so what is live and what is open to
+  // enter changes there too — publishing a tournament that never showed up on
+  // the front page would look like the publish hadn't worked.
+  revalidatePath("/");
   revalidatePath("/tournaments");
   revalidatePath("/tournaments/[id]", "page");
   revalidatePath("/admin/tournaments");
@@ -106,6 +112,9 @@ type TournamentInput = {
   startAt: Date;
   courtIds: number[];
   prizeDescription: string;
+  /** The per-place prize table, in place order. Empty means the tournament
+   *  awards nothing it wants to name, which is a perfectly ordinary tournament. */
+  prizes: PrizeRow[];
   averageMatchMinutes: number | null;
   courtChangeoverMinutes: number | null;
   poolCount: number | null;
@@ -131,6 +140,66 @@ function parseOptionalMinutes(raw: FormDataEntryValue | null): number | null | u
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0 || n > 600) return undefined;
   return n;
+}
+
+/** The most places a prize table can name. Well past any real podium, and
+ *  there only so a broken client can't post ten thousand rows. */
+const MAX_PRIZE_PLACES = 24;
+
+/**
+ * The per-place prize rows, posted as parallel `prizePlace` / `prizeLabel` /
+ * `prizeAmount` / `prizeNote` fields the same way windows of play are.
+ *
+ * The place is the identity — it is what `finalPlacements` pairs against — so a
+ * repeated place is rejected rather than silently collapsed. A row with no place
+ * at all is a blank line an admin added and didn't fill in, and is dropped.
+ */
+function readPrizes(formData: FormData): PrizeRow[] | string {
+  const places = formData.getAll("prizePlace");
+  const labels = formData.getAll("prizeLabel");
+  const amounts = formData.getAll("prizeAmount");
+  const notes = formData.getAll("prizeNote");
+
+  const prizes: PrizeRow[] = [];
+  for (let i = 0; i < places.length; i++) {
+    const raw = String(places[i] ?? "").trim();
+    const label = String(labels[i] ?? "").trim().slice(0, 60);
+    const description = String(notes[i] ?? "").trim().slice(0, 200);
+    const amountRaw = String(amounts[i] ?? "").trim();
+    if (!raw && !label && !description && !amountRaw) continue;
+
+    const place = Number(raw);
+    if (!Number.isInteger(place) || place < 1 || place > MAX_PRIZE_PLACES) {
+      return `A prize place has to be a whole number between 1 and ${MAX_PRIZE_PLACES}.`;
+    }
+    if (prizes.some((p) => p.place === place)) return `There are two prizes for place ${place}.`;
+
+    /* A blank amount is not a zero. Zero would advertise a cash prize of
+       nothing; blank means the prize isn't money — a trophy, a paddle, a
+       month of court time. */
+    let amountCents: number | null = null;
+    if (amountRaw) {
+      const amount = Number(amountRaw);
+      if (!Number.isFinite(amount) || amount < 0) return "A prize amount must be zero or more, or blank.";
+      amountCents = Math.round(amount * 100);
+    }
+    if (amountCents == null && !description && !label) {
+      return `Say what the prize for place ${place} is — a name, an amount, or both.`;
+    }
+
+    prizes.push({ place, label: label || placeLabel(place), amountCents, description });
+  }
+
+  return prizes.sort((a, b) => a.place - b.place);
+}
+
+/** The prize table as one comparable string, so an edit that changed nothing
+ *  isn't read as an attempt to change a locked field. */
+function prizeFingerprint(prizes: readonly PrizeRow[]): string {
+  return [...prizes]
+    .sort((a, b) => a.place - b.place)
+    .map((p) => `${p.place}|${p.label}|${p.amountCents ?? ""}|${p.description}`)
+    .join("\n");
 }
 
 function readTournamentForm(formData: FormData, tz: string): TournamentInput | string {
@@ -229,6 +298,9 @@ function readTournamentForm(formData: FormData, tz: string): TournamentInput | s
     .filter((n) => Number.isInteger(n));
   if (courtIds.length === 0) return "Pick at least one court for the tournament to use.";
 
+  const prizes = readPrizes(formData);
+  if (typeof prizes === "string") return prizes;
+
   const averageMatchMinutes = parseOptionalMinutes(formData.get("averageMatchMinutes"));
   const courtChangeoverMinutes = parseOptionalMinutes(formData.get("courtChangeoverMinutes"));
   if (averageMatchMinutes === undefined || courtChangeoverMinutes === undefined) {
@@ -254,6 +326,7 @@ function readTournamentForm(formData: FormData, tz: string): TournamentInput | s
     startAt,
     courtIds,
     prizeDescription: String(formData.get("prizeDescription") ?? "").slice(0, 1000),
+    prizes,
     averageMatchMinutes,
     courtChangeoverMinutes,
     poolCount,
@@ -298,6 +371,7 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
         poolCount: parsed.poolCount,
         advancePerPool: parsed.advancePerPool,
         swissRounds: parsed.swissRounds,
+        prizes: { create: parsed.prizes },
         createdById: admin.id,
         courts: { create: parsed.courtIds.map((courtId) => ({ courtId })) },
         /* No `syncCourtBlocks` here: a draft blocks no courts, exactly as when
@@ -319,7 +393,11 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
 
   const existing = await prisma.tournament.findUnique({
     where: { id },
-    include: { courts: true, _count: { select: { registrations: true } } },
+    include: {
+      courts: true,
+      prizes: { orderBy: { place: "asc" } },
+      _count: { select: { registrations: true } },
+    },
   });
   if (!existing) return { error: "Tournament not found." };
 
@@ -352,6 +430,7 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
   same("startAt", existing.startAt.getTime() === parsed.startAt.getTime());
   same("courtIds", currentCourtIds.join(",") === nextCourtIds.join(","));
   same("prizeDescription", existing.prizeDescription === parsed.prizeDescription);
+  same("prizes", prizeFingerprint(existing.prizes) === prizeFingerprint(parsed.prizes));
   same(
     "pacing",
     existing.averageMatchMinutes === parsed.averageMatchMinutes &&
@@ -421,6 +500,19 @@ export async function saveTournament(_prev: ActionState, formData: FormData): Pr
     await prisma.tournamentCourt.createMany({
       data: parsed.courtIds.map((courtId) => ({ tournamentId: id, courtId })),
     });
+  }
+
+  /* Replaced wholesale rather than reconciled row by row. The place is the
+     identity and nothing references a prize row by id, so dropping the table and
+     writing the new one is both simpler and exactly what an admin who deleted a
+     row means. */
+  if (changed.includes("prizes")) {
+    await prisma.tournamentPrize.deleteMany({ where: { tournamentId: id } });
+    if (parsed.prizes.length > 0) {
+      await prisma.tournamentPrize.createMany({
+        data: parsed.prizes.map((p) => ({ ...p, tournamentId: id })),
+      });
+    }
   }
 
   // A raised cap can let waitlisted entries in; a moved start, a changed court

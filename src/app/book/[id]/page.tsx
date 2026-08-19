@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { getSettings, getPriceTiers } from "@/lib/booking-data";
@@ -62,13 +64,25 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
   const payMethodLabel = booking.payMethod ? (PAY_METHOD_LABELS[booking.payMethod] ?? booking.payMethod) : "";
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold">Booking #{booking.id.slice(-6).toUpperCase()}</h1>
-        <p className="text-muted-foreground">
-          {booking.court.name} — {dateLabel} ({booking.hours}h)
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 py-7 sm:py-9">
+      <Link
+        href="/my-bookings"
+        className="inline-flex w-fit items-center gap-1.5 text-sm font-bold text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" />
+        My bookings
+      </Link>
+
+      <div className="surface-raised p-5 sm:p-6">
+        <p className="eyebrow">Booking #{booking.id.slice(-6).toUpperCase()}</p>
+        <h1 className="mt-3.5 text-2xl">{booking.court.name}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {dateLabel} · {booking.hours}h
         </p>
-        <p className="font-medium">Total: {formatMoney(totalCents, settings.currency)}</p>
+        <p className="mt-4 flex items-baseline gap-2 border-t border-border pt-4">
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Total</span>
+          <span className="figure-display text-3xl">{formatMoney(totalCents, settings.currency)}</span>
+        </p>
       </div>
 
       <div className="surface-card p-5">
@@ -95,7 +109,7 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
             )}
 
             {pendingSiblings.length > 0 && (
-              <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <div className="rounded-2xl bg-secondary/60 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   This payment covers
                 </p>

@@ -49,6 +49,10 @@ export default async function NewTournamentPage() {
           startAt: asInput(starts),
           courtIds: courts.map((c) => c.id),
           prizeDescription: "",
+          prizes: [
+            { place: 1, label: "Champion", amount: "", description: "" },
+            { place: 2, label: "Runner-up", amount: "", description: "" },
+          ],
           poolCount: "",
           advancePerPool: "",
           swissRounds: "",

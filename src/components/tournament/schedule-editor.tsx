@@ -22,7 +22,7 @@ export type SessionRow = {
 
 export type RoundRow = { round: number; matchCount: number; sessionId: string | null; played: number };
 
-const INPUT = "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm";
+const INPUT = "field";
 const QUIET =
   "rounded-full border border-border px-3 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50";
 const DANGER =
@@ -113,7 +113,7 @@ export function ScheduleEditor({
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+              className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
             >
               <CalendarPlus className="size-4" />
               Add a window
@@ -223,7 +223,7 @@ function SessionForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
+          className="btn btn-primary btn-sm"
         >
           {pending ? "Saving…" : session ? "Save window" : "Add window"}
         </button>
@@ -261,7 +261,7 @@ function RoundAssign({
         defaultValue={current ?? ""}
         disabled={disabled || pending}
         onChange={(e) => e.currentTarget.form?.requestSubmit()}
-        className="rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs disabled:opacity-60"
+        className="field field-sm"
       >
         <option value="">Unscheduled</option>
         {sessions.map((s) => (

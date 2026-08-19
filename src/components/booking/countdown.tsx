@@ -20,16 +20,25 @@ export function Countdown({ expiresAtMs }: { expiresAtMs: number }) {
   }, [expiresAtMs, router]);
 
   if (remaining <= 0) {
-    return <p className="text-sm font-medium text-destructive">This hold has expired.</p>;
+    return (
+      <p className="inline-flex w-fit items-center gap-2 rounded-full bg-destructive/12 px-3.5 py-2 text-sm font-bold text-destructive">
+        This hold has expired.
+      </p>
+    );
   }
 
   const totalSeconds = Math.floor(remaining / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
 
+  /* The one number on the page that is running out, so it is set as data and
+     wears the warning tone rather than sitting in a sentence. */
   return (
-    <p className="text-sm font-medium text-warning">
-      Time remaining: {minutes}:{String(seconds).padStart(2, "0")}
+    <p className="inline-flex w-fit items-center gap-2 rounded-full bg-warning/15 px-3.5 py-2 text-sm font-bold text-warning-strong">
+      Time remaining
+      <span className="data-value text-base tabular-nums">
+        {minutes}:{String(seconds).padStart(2, "0")}
+      </span>
     </p>
   );
 }

@@ -17,6 +17,7 @@ This file records what was actually built and where it lives.
 | Member pages | `src/app/tournaments/` |
 | Admin pages | `src/app/admin/tournaments/` |
 | Components | `src/components/tournament/` |
+| Proving all five formats end to end against the real engine | `scripts/simulate-tournaments.ts` |
 
 The split between the first two files is deliberate: everything that is easy to
 get subtly wrong (bye placement, who is allowed to play next, sort order of a
@@ -104,6 +105,22 @@ is still on court.
 A walkover drops nobody. An entry that didn't turn up doesn't get a second life,
 and leaving the slot empty lets their would-be opponent through as a bye, which
 is the same result with less fiction in it.
+
+The **day-length estimate subtracts the byes**, which in this format takes a
+walk over the plan rather than arithmetic. Padding to a power of two creates
+winners-bracket matches with one entry in them, and those byes cascade: the
+losers-bracket match fed by two of them has nobody to put in it either. None of
+them ever takes a court. `contestedMatches` replays the fill rule the engine
+uses — a slot is filled if the match feeding it produces somebody, any match
+with somebody in it produces a winner, and only a contested match produces a
+loser — so `matchesPerRound` counts what will be played. Before that it counted
+plan rows, and a 5-entry draw was booked for exactly as long as a full 8-entry
+one.
+
+The grand final reset is the deliberate exception: it is counted whether or not
+this particular plan fills its second side, because it is walked over only when
+the winners-bracket champion wins outright, and the block has to be long enough
+for the day it isn't.
 
 ### Pools into knockout
 
@@ -403,6 +420,112 @@ Open* rather than naming the admin.
 to `startAt` or the court list needs. Cancelling or finishing a tournament
 releases the blocks (cancelled, never deleted, so the calendar mirror is told to
 drop their events).
+
+## Who finished where
+
+Nothing stores a final table. The draw is the only record of the result, so
+`finalPlacements` reads it back — the same matches the results view renders —
+and states the order they imply. Each format is asked the question it can
+actually answer:
+
+- **Single elimination** ranks by how far an entry got: everyone knocked out in
+  the same round finished level, and whoever was never knocked out won. Reading
+  rounds rather than bracket positions is what makes a draw padded with byes come
+  out right — an entry that had a bye and went out in round 2 got further than
+  one that played and lost in round 1.
+- **Double elimination** takes the top two off the grand final. The reset's
+  winner is the champion either way, since it is walked over when the
+  winners-bracket champion wins outright; the runner-up is the loser of whichever
+  of the two was actually contested. Everybody else went out of the losers
+  bracket, and the later they went the further they got — which makes the losers
+  final's loser third without a play-off.
+- **Round robin and Swiss** take the standings order, with `buildStandings`'s
+  existing tiebreaks and no others.
+- **Pools into knockout** places the qualifiers off the knockout, then the rest
+  by where they finished in their pool.
+
+Ties are stated rather than broken. A single-elimination bracket genuinely cannot
+separate its two semifinal losers — there is no third-place match — and two
+identical standings rows are level in fact, not merely adjacent in the sort. Both
+come back marked `tied`, sharing a place, with the next distinct place past all
+of them: 1, 2, 3, 3, 5. Inventing an order for either would report a result that
+was never played.
+
+## Prizes
+
+`TournamentPrize` is one row per place — `place`, `label`, `amountCents`,
+`description` — rather than one blob on the tournament. A placing is a thing the
+draw produces, so what third place is *worth* can be attached to whoever finished
+third; a paragraph could only ever be printed next to the results.
+
+`prizeDescription` survives as the extra-notes field, for what doesn't belong to
+any one placing ("trophies for every finalist", where to collect) and for
+whatever was written before places existed.
+
+The place is the identity: it is what `withPrizes` pairs against, so a repeated
+place is rejected in `readTournamentForm` and the table is replaced wholesale on
+save rather than reconciled row by row. A blank amount is **not** zero — zero
+advertises a cash prize of nothing, blank means the prize isn't money.
+
+The table edits under `prizes` in `EDITABLE_BY_STATUS`, and stays open all the
+way to `registration_closed`: what a tournament pays is advertised, not promised
+under contract, and a club that lands a sponsor the week before should be able to
+say so.
+
+## Reading the results without opening a tournament
+
+`/tournaments` carries a compact card under every tournament that has anything to
+show, and `/` carries a promo tile for what is live and what is open.
+
+The cards are built out of the same `StandingsTable` and the same
+`finalPlacements` the tournament's own page uses, so the glance and the page
+cannot disagree. Which card appears depends on what the format actually has:
+
+- a table for round robin, Swiss and a pool stage, because that is the answer;
+- **bracket progress** for single elimination, double elimination and a pool
+  knockout — the round in play, who is still in, who is out, and what is on court
+  — because an entry's win-loss record in a knockout says almost nothing, since
+  who you played is the whole story;
+- a **winners card** once it is over: champion, runner-up and third, each against
+  the prize sitting at their place.
+
+Both pages fetch flat. `listTournamentResults` takes every tournament id on the
+page and returns three grouped queries for all of them, rather than a relation
+include that would drag every match of every tournament ever run through a page
+that mostly wants names and dates. `getTournamentPromo` is one query plus two
+`groupBy` aggregates, and deliberately does **not** sweep: the sweep draws
+brackets and starts play, which is real work to hang off the homepage, and its
+`where` clauses ask the same questions `isJoinable` does, so a tournament whose
+deadline has gone is filtered out whether or not anything has closed it yet.
+
+## Proving it
+
+`scripts/simulate-tournaments.ts` runs one tournament of every format from an
+empty draft to a champion against the real database, through the real engine
+calls — `closeRegistrationAndDraw`, `assignFreeCourts`, `settleAfterMatch`,
+`growDraw`, `completeIfFinished`. It writes no `Match` row by hand, because a
+bracket the script drew itself would only prove that the script agrees with
+itself.
+
+    npx tsx --env-file=.env.local scripts/simulate-tournaments.ts
+
+The field sizes are awkward on purpose — powers of two are the case every format
+gets right. Eleven into a sixteen draw for the byes, the round-robin cap itself,
+six into a double elimination with the grand final forced to a reset, eleven
+across three pools that come out 3/4/4, and an odd Swiss field that byes somebody
+every round. Each one takes a waitlist promotion and a withdrawal on the way in.
+
+What it then asserts is a property of *any* run rather than of one draw: that the
+tournament completed and stamped `completedAt`, that no match was left unplayed,
+that the matches played match `totalMatchCount`, that walkovers hold no court,
+that `played = wins + losses` in every standings row, that the placement list
+covers the field exactly once and reads as a competition ranking, that the
+champion it names is the one the draw names read a different way, and that the
+court blocks went back to the calendar.
+
+`scripts/cleanup-simulated-tournaments.ts` removes everything it made. Both are
+scoped to the `[SIM]` name tag and the `sim-` member prefix, because
+`DATABASE_URL` is a shared development database.
 
 ## Deleting a tournament
 

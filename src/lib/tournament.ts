@@ -1,6 +1,7 @@
 import type {
   MatchBracket,
   MatchStatus,
+  RegistrationStatus,
   TournamentFormat,
   TournamentPlayType,
   TournamentStatus,
@@ -230,6 +231,52 @@ function singleEliminationShape(entries: number): number[] {
 }
 
 /**
+ * Which matches of a planned draw will actually be contested, rather than
+ * walked over because a side of them was never going to arrive.
+ *
+ * Padding a draw to a power of two creates matches with one entry in them, and
+ * those byes cascade: in a double-elimination draw the losers-bracket match fed
+ * by two winners-bracket byes has nobody to put in it either. `refreshMatchStates`
+ * resolves all of them without a court ever being used, so counting them as
+ * matches over-books the courts — which for a 5-entry double elimination meant
+ * blocking exactly as long as a full 8-entry draw.
+ *
+ * The rule is the same one the engine applies: a slot is filled if the match
+ * feeding it produces somebody, a match with anybody in it produces a winner,
+ * and only a match that was actually contested produces a loser.
+ */
+function contestedMatches(plan: readonly PlannedMatch[]): boolean[] {
+  const key = (round: number, matchNumber: number) => `${round}:${matchNumber}`;
+  const filled = new Map<string, { a: boolean; b: boolean }>(
+    plan.map((m) => [key(m.round, m.matchNumber), { a: m.sideAIndex != null, b: m.sideBIndex != null }]),
+  );
+
+  const contested = new Map<string, boolean>();
+  const fill = (round: number | null, matchNumber: number | null, slot: "A" | "B" | null) => {
+    if (round == null || matchNumber == null || !slot) return;
+    const target = filled.get(key(round, matchNumber));
+    if (!target) return;
+    if (slot === "A") target.a = true;
+    else target.b = true;
+  };
+
+  /* In round order, so a match's sides are settled before it is asked whether
+     it has two of them — the draws this runs over always feed forwards. */
+  for (const m of [...plan].sort((x, y) => x.round - y.round || x.matchNumber - y.matchNumber)) {
+    const sides = filled.get(key(m.round, m.matchNumber)) as { a: boolean; b: boolean };
+    const isContested = sides.a && sides.b;
+    contested.set(key(m.round, m.matchNumber), isContested);
+
+    if (sides.a || sides.b) fill(m.nextRound, m.nextMatchNumber, m.nextSlot);
+    // A walkover drops nobody: an entry that never turned up doesn't get a
+    // second life, which is the rule `settleAfterMatch` enforces.
+    if (isContested) fill(m.loserNextRound, m.loserNextMatchNumber, m.loserNextSlot);
+  }
+
+  return plan.map((m) => contested.get(key(m.round, m.matchNumber)) ?? false);
+}
+
+/**
  * How many matches each round of a draw actually plays.
  *
  * A round here is a set of matches that can all run at once — nobody appears
@@ -258,9 +305,19 @@ export function matchesPerRound(
     case "double_elimination": {
       const plan = buildDoubleEliminationPlan(entries);
       const rounds = plan.length === 0 ? 0 : Math.max(...plan.map((m) => m.round));
-      // The reset is counted here because the block has to be long enough for
-      // the day where it is played; most days it is walked over in a moment.
-      return Array.from({ length: rounds }, (_, i) => plan.filter((m) => m.round === i + 1).length);
+      /* The byes are subtracted here for the same reason `singleEliminationShape`
+         subtracts its own: a match with one side in it never takes a court, and
+         an estimate that counts it books the venue for a draw nobody is playing.
+         Working them out needs the plan rather than arithmetic, because in this
+         format a bye in the winners bracket empties a losers-bracket match too.
+
+         The reset is the one exception, counted whether or not this particular
+         plan fills its second side: it is only walked over when the
+         winners-bracket champion wins the grand final outright, and the block
+         has to be long enough for the day it isn't. */
+      const contested = contestedMatches(plan);
+      const counts = plan.filter((m, i) => contested[i] || m.bracket === "grand_final_reset");
+      return Array.from({ length: rounds }, (_, i) => counts.filter((m) => m.round === i + 1).length);
     }
 
     case "pool_to_bracket": {
@@ -1147,6 +1204,436 @@ export function buildStandings(
 }
 
 /* ------------------------------------------------------------------ *
+ * Final placements
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where one entry finished. `place` is a competition rank: entries that share a
+ * place all carry that number, and the next distinct place skips past them, so
+ * two entries tied for 3rd are followed by 5th and there is no phantom 4th.
+ */
+export type Placement = {
+  place: number;
+  registrationId: string;
+  /** Shared with at least one other entry. Set only when it is true, because a
+   *  tie is a claim about the draw — a single-elimination bracket really cannot
+   *  separate its two semifinal losers, and inventing an order for them would
+   *  read as a result that was never played. */
+  tied?: boolean;
+};
+
+/** The entry columns placement needs. Structural rather than the Prisma row, so
+ *  this stays callable from a script, a page, and the engine alike. */
+export type PlacementEntry = {
+  id: string;
+  status: RegistrationStatus;
+  pool: number | null;
+};
+
+/** The match columns placement needs — a superset of what `buildStandings`
+ *  reads, so the same rows serve both. */
+export type PlacementMatch = {
+  round: number;
+  status: MatchStatus;
+  bracket: MatchBracket | null;
+  pool: number | null;
+  score: string;
+  sideARegistrationId: string | null;
+  sideBRegistrationId: string | null;
+  winnerRegistrationId: string | null;
+};
+
+/** Only entries that were actually in the draw can have finished anywhere in
+ *  it. A withdrawal is not a last place, and a waitlisted entry never played. */
+function inDraw(entries: readonly PlacementEntry[]): PlacementEntry[] {
+  return entries.filter((e) => e.status !== "withdrawn" && e.status !== "waitlisted");
+}
+
+function isSettled(status: MatchStatus): boolean {
+  return status === "completed" || status === "walkover";
+}
+
+/**
+ * Who lost a settled match, or null when nobody did: a bye has only one side,
+ * and a walkover both of whose sides dissolved has no winner to lose to.
+ */
+function loserOf(match: PlacementMatch): string | null {
+  if (!isSettled(match.status) || !match.winnerRegistrationId) return null;
+  const { sideARegistrationId: a, sideBRegistrationId: b } = match;
+  if (!a || !b) return null;
+  return match.winnerRegistrationId === a ? b : a;
+}
+
+/**
+ * Turn tiers of joint finishers into a placement list.
+ *
+ * Every entry in a tier takes the same place and the following tier starts past
+ * all of them, which is what makes the list gapless read as a ranking: the
+ * places present are exactly the positions that were actually decided.
+ */
+function toPlacements(tiers: readonly (readonly string[])[]): Placement[] {
+  const out: Placement[] = [];
+  let place = 1;
+  for (const tier of tiers) {
+    if (tier.length === 0) continue;
+    for (const registrationId of tier) {
+      out.push(tier.length > 1 ? { place, registrationId, tied: true } : { place, registrationId });
+    }
+    place += tier.length;
+  }
+  return out;
+}
+
+/**
+ * Order an elimination field by how far it got: everyone knocked out in the
+ * same round finished level, and whoever was never knocked out won.
+ *
+ * This is the whole of single-elimination placement and the knockout half of a
+ * pool draw. It reads rounds rather than bracket positions so a draw padded with
+ * byes still ranks correctly — an entry that had a bye and went out in round 2
+ * got further than one that played and lost in round 1, which is what the rounds
+ * already say.
+ */
+function eliminationTiers(entries: readonly string[], matches: readonly PlacementMatch[]): string[][] {
+  const field = new Set(entries);
+  const lostIn = new Map<string, number>();
+  for (const match of matches) {
+    const loser = loserOf(match);
+    if (!loser || !field.has(loser)) continue;
+    // `max` is belt and braces — one loss is all an entry gets here — but it
+    // keeps a re-entered id from ranking off its earliest exit.
+    lostIn.set(loser, Math.max(lostIn.get(loser) ?? 0, match.round));
+  }
+
+  const survivors = entries.filter((id) => !lostIn.has(id));
+  const byRound = new Map<number, string[]>();
+  for (const [id, round] of lostIn) {
+    const tier = byRound.get(round) ?? [];
+    tier.push(id);
+    byRound.set(round, tier);
+  }
+
+  return [
+    survivors,
+    ...[...byRound.keys()].sort((a, b) => b - a).map((round) => byRound.get(round) as string[]),
+  ];
+}
+
+/**
+ * The standings, cut into tiers of entries the table genuinely cannot separate.
+ *
+ * `buildStandings` already sorts by wins, then differential, then points for.
+ * Two rows equal on all three are tied in fact, not merely adjacent, so they
+ * share a place rather than being ordered by whatever the sort happened to do.
+ */
+function standingsTiers(entries: readonly string[], matches: readonly PlacementMatch[]): string[][] {
+  const rows = buildStandings(entries, matches);
+  const tiers: string[][] = [];
+  rows.forEach((row, i) => {
+    const above = rows[i - 1];
+    const level =
+      above != null && above.wins === row.wins && above.diff === row.diff && above.pointsFor === row.pointsFor;
+    if (level) tiers[tiers.length - 1].push(row.registrationId);
+    else tiers.push([row.registrationId]);
+  });
+  return tiers;
+}
+
+/**
+ * Placements for a double-elimination draw.
+ *
+ * The top two come off the grand final, which is twice to beat: the reset is
+ * planned like any other match and walked over when the winners-bracket champion
+ * wins outright, so the reset's winner is the champion either way. The runner-up
+ * is the loser of whichever of the two was actually contested.
+ *
+ * Everybody else went out of the losers bracket, and the later they went out the
+ * further they got — so the losers final's loser is third, which is the one
+ * placing this format can state without a play-off.
+ */
+function doubleEliminationTiers(entries: readonly string[], matches: readonly PlacementMatch[]): string[][] {
+  const field = new Set(entries);
+  const reset = matches.find((m) => m.bracket === "grand_final_reset");
+  const grandFinal = matches.find((m) => m.bracket === "grand_final");
+
+  /* The reset only decided anything if it had two sides. Walked over it names
+     the same champion the grand final did, and taking a runner-up off it would
+     invent a loser out of an empty slot. */
+  const resetWasPlayed =
+    reset != null &&
+    isSettled(reset.status) &&
+    reset.sideARegistrationId != null &&
+    reset.sideBRegistrationId != null;
+  const decider = resetWasPlayed ? reset : grandFinal;
+
+  const champion = reset?.winnerRegistrationId ?? grandFinal?.winnerRegistrationId ?? null;
+  const runnerUp = decider ? loserOf(decider) : null;
+
+  const decided = [champion, runnerUp].filter((id): id is string => id != null && field.has(id));
+  const rest = entries.filter((id) => !decided.includes(id));
+
+  /* Everyone left was knocked out of the losers bracket. Its rounds interleave
+     with the winners bracket in the tournament-wide numbering, but they still
+     run in order, so a later losers round is unambiguously a longer run. */
+  const losersRounds = matches.filter((m) => m.bracket === "losers");
+  return [
+    ...decided.map((id) => [id]),
+    ...eliminationTiers(rest, losersRounds).filter((tier) => tier.length > 0),
+  ];
+}
+
+/**
+ * Placements for pools into a knockout: the knockout decides the top of the
+ * table, and the entries that never got out of their pool are ranked by where
+ * they finished in it.
+ *
+ * Pool finishers are grouped by position rather than laid end to end, because a
+ * third place in one pool and a third place in another never met — the pools
+ * were played side by side against different opposition, and ordering them
+ * against each other would claim a comparison the draw did not make.
+ */
+function poolToBracketTiers(
+  entries: readonly PlacementEntry[],
+  matches: readonly PlacementMatch[],
+  config: FormatConfig,
+): string[][] {
+  const knockout = matches.filter((m) => m.pool == null);
+  /* Intersected with the field rather than taken straight off the match rows:
+     an entry withdrawn after qualifying still sits in a knockout slot, and it
+     is not a finisher of a tournament it left. */
+  const inField = new Set(entries.map((e) => e.id));
+  const qualified = new Set(
+    knockout
+      .flatMap((m) => [m.sideARegistrationId, m.sideBRegistrationId])
+      .filter((id): id is string => id != null && inField.has(id)),
+  );
+
+  const knockoutTiers = eliminationTiers([...qualified], knockout);
+
+  /* One table per pool, in the same order the pool page shows them, so a
+     placement and the table a member read agree about who finished third. */
+  const pools = [...new Set(entries.map((e) => e.pool).filter((p): p is number => p != null))].sort((a, b) => a - b);
+  const byPosition = new Map<number, string[]>();
+  for (const pool of pools) {
+    const members = entries.filter((e) => e.pool === pool).map((e) => e.id);
+    const table = buildStandings(members, matches.filter((m) => m.pool === pool));
+    table.forEach((row, position) => {
+      if (qualified.has(row.registrationId)) return;
+      /* Before the knockout is drawn nothing has separated the qualifying
+         places from each other — they are all still level at "through to the
+         bracket" — so they collapse into one tier rather than being reported as
+         a finishing order the pools never decided. */
+      const key = knockout.length === 0 && position < config.advancePerPool ? 0 : position;
+      const tier = byPosition.get(key) ?? [];
+      tier.push(row.registrationId);
+      byPosition.set(key, tier);
+    });
+  }
+
+  /* A pool position at or above the qualifying line but not in the knockout
+     means the entry was drawn out of it — withdrawn, or a field size that
+     couldn't seat every qualifier. They still finished ahead of the pool
+     placings below them, which is what sorting by position preserves. */
+  const poolTiers = [...byPosition.keys()]
+    .sort((a, b) => a - b)
+    .map((position) => byPosition.get(position) as string[]);
+
+  /* Entries with no pool at all — nothing in a drawn tournament, but a draw
+     that never happened shouldn't silently drop them from the list. */
+  const placed = new Set([...knockoutTiers.flat(), ...poolTiers.flat()]);
+  const unplaced = entries.map((e) => e.id).filter((id) => !placed.has(id));
+
+  return [...knockoutTiers, ...poolTiers, unplaced];
+}
+
+/**
+ * Who finished where, for any format.
+ *
+ * The draw is the only record of this — nothing stores a final table — so this
+ * reads the same matches the results view does and states the order they imply.
+ * Each format is asked the question it can actually answer: a bracket knows how
+ * far everyone got, a table knows the order it sorted into, and neither is
+ * asked to guess at a placing it never played for.
+ *
+ * Safe to call on a tournament still in progress; it simply describes the
+ * standing as it is. It is only a *final* placement once play is over.
+ */
+export function finalPlacements(
+  format: TournamentFormat,
+  config: FormatConfig,
+  registrations: readonly PlacementEntry[],
+  matches: readonly PlacementMatch[],
+): Placement[] {
+  const entries = inDraw(registrations);
+  if (entries.length === 0) return [];
+  const ids = entries.map((e) => e.id);
+
+  switch (format) {
+    case "double_elimination":
+      return toPlacements(doubleEliminationTiers(ids, matches));
+    case "pool_to_bracket":
+      return toPlacements(poolToBracketTiers(entries, matches, config));
+    case "round_robin":
+    case "swiss":
+      return toPlacements(standingsTiers(ids, matches));
+    default:
+      return toPlacements(eliminationTiers(ids, matches));
+  }
+}
+
+/** The champion, once there is exactly one. Null while a draw still has more
+ *  than one entry on the top line, which is the honest answer mid-tournament. */
+export function championOf(placements: readonly Placement[]): string | null {
+  const top = placements.filter((p) => p.place === 1);
+  return top.length === 1 ? top[0].registrationId : null;
+}
+
+/* ------------------------------------------------------------------ *
+ * How far a draw has got
+ * ------------------------------------------------------------------ */
+
+/**
+ * A running elimination draw, summarised: which round is being played, who can
+ * still win it, who is out, and what is on court right now.
+ *
+ * A bracket has no table to read, so this is what "the standings" means for one
+ * — a member glancing at a list wants to know whether they are still in it and
+ * what is happening this minute, not to re-derive that from thirty match rows.
+ */
+export type BracketProgress = {
+  /** The earliest round still holding an unplayed match: the round in play.
+   *  Falls back to the last round once everything is decided. */
+  currentRound: number;
+  /** How many rounds the draw is planned to run, which for a growing format is
+   *  the plan rather than the rows that exist so far. */
+  totalRounds: number;
+  /** Matches settled — played or walked over — out of the rows drawn so far. */
+  decided: number;
+  drawn: number;
+  /** Still able to win it, best seed first. */
+  alive: string[];
+  /** Knocked out, most recently first, so the list reads as an exit order. */
+  out: string[];
+  /** On court this moment. Empty between calls, and on a day nobody is playing. */
+  onCourt: { sideA: string | null; sideB: string | null; courtId: number | null }[];
+};
+
+/** How many losses a format lets an entry take before it is over for them.
+ *  Two is the whole of what makes double elimination double. */
+export function lossesAllowed(format: TournamentFormat): number {
+  return format === "double_elimination" ? 2 : 1;
+}
+
+/**
+ * Summarise an elimination draw in flight.
+ *
+ * `registrationIds` is the field this bracket is over — the whole draw for a
+ * straight knockout, and only the qualifiers for the knockout half of a pool
+ * tournament, whose pool stage is a table and reads as one.
+ */
+export function bracketProgress(params: {
+  format: TournamentFormat;
+  registrationIds: readonly string[];
+  matches: readonly (PlacementMatch & { courtId?: number | null })[];
+  /** Rounds the draw is planned to run. Defaults to the rounds that exist,
+   *  which is right for a draw planned in full and short for a growing one. */
+  plannedRounds?: number;
+}): BracketProgress {
+  const { format, registrationIds, matches } = params;
+  const field = new Set(registrationIds);
+
+  const losses = new Map<string, number>();
+  const exitOrder: string[] = [];
+  for (const match of matches) {
+    const loser = loserOf(match);
+    if (!loser || !field.has(loser)) continue;
+    const next = (losses.get(loser) ?? 0) + 1;
+    losses.set(loser, next);
+    if (next >= lossesAllowed(format)) exitOrder.push(loser);
+  }
+
+  const out = new Set(exitOrder);
+  const alive = registrationIds.filter((id) => !out.has(id));
+
+  const rounds = matches.map((m) => m.round);
+  const unsettled = matches.filter((m) => !isSettled(m.status));
+  const lastRound = rounds.length > 0 ? Math.max(...rounds) : 1;
+
+  return {
+    currentRound: unsettled.length > 0 ? Math.min(...unsettled.map((m) => m.round)) : lastRound,
+    totalRounds: Math.max(params.plannedRounds ?? lastRound, lastRound),
+    decided: matches.length - unsettled.length,
+    drawn: matches.length,
+    alive,
+    // Most recently knocked out first: the interesting end of an exit list is
+    // who has just gone, not who went out in the first round.
+    out: [...exitOrder].reverse(),
+    onCourt: matches
+      .filter((m) => m.status === "in_progress")
+      .map((m) => ({
+        sideA: m.sideARegistrationId,
+        sideB: m.sideBRegistrationId,
+        courtId: m.courtId ?? null,
+      })),
+  };
+}
+
+/**
+ * Which stage a `pool_to_bracket` tournament is in.
+ *
+ * The two halves read completely differently — a table while the pools run, a
+ * bracket once the knockout is drawn — so every view of this format has to ask
+ * the question, and it is worth asking in one place.
+ */
+export function poolStage(matches: readonly PlacementMatch[]): "pools" | "knockout" {
+  return matches.some((m) => m.pool == null) ? "knockout" : "pools";
+}
+
+/* ------------------------------------------------------------------ *
+ * Prizes
+ * ------------------------------------------------------------------ */
+
+/** A prize as stored — see `TournamentPrize` in the schema. */
+export type PrizeRow = {
+  place: number;
+  label: string;
+  amountCents: number | null;
+  description: string;
+};
+
+export type PlacementWithPrize = Placement & { prize: PrizeRow | null };
+
+/**
+ * Pair each placement with the prize sitting at its place.
+ *
+ * By place and not by order, because they are two different lists: an admin may
+ * pay the top two and nothing else, and a tie for third means two entries both
+ * matching the one third-place prize — which is exactly what the desk has to
+ * sort out, and exactly what this should show rather than hide.
+ */
+export function withPrizes(
+  placements: readonly Placement[],
+  prizes: readonly PrizeRow[],
+): PlacementWithPrize[] {
+  const byPlace = new Map(prizes.map((p) => [p.place, p]));
+  return placements.map((p) => ({ ...p, prize: byPlace.get(p.place) ?? null }));
+}
+
+/** What a place is called when no prize row names it. Ordinals past third,
+ *  because "Champion" and "Runner-up" are what people say and "1st place" is
+ *  what a spreadsheet says. */
+export function placeLabel(place: number): string {
+  if (place === 1) return "Champion";
+  if (place === 2) return "Runner-up";
+  const suffix = place % 100 >= 11 && place % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][place % 10] ?? "th";
+  return `${place}${suffix} place`;
+}
+
+/** How many places a tournament awards prizes for — used to decide how much of
+ *  the placement list a winners card is worth showing. */
+export const PODIUM_PLACES = 3;
+
+/* ------------------------------------------------------------------ *
  * Status rules (§4 of the plan)
  * ------------------------------------------------------------------ */
 
@@ -1166,6 +1653,11 @@ export type EditableField =
   | "startAt"
   | "courtIds"
   | "prizeDescription"
+  /** The whole per-place prize table, as one field. Adding a third place and
+   *  changing what first place pays are the same kind of edit, and splitting
+   *  them would mean a status that let an admin edit one row of a table but not
+   *  another — which is not a rule anybody could state. */
+  | "prizes"
   /** The two pacing overrides, together — they only resize the court block. */
   | "pacing"
   /** The pool and Swiss knobs, together. They decide the shape of the draw, so
@@ -1193,6 +1685,7 @@ export const EDITABLE_BY_STATUS: Record<TournamentStatus, readonly EditableField
     "startAt",
     "courtIds",
     "prizeDescription",
+    "prizes",
     "pacing",
     "formatShape",
   ],
@@ -1209,12 +1702,16 @@ export const EDITABLE_BY_STATUS: Record<TournamentStatus, readonly EditableField
     "registrationClosesAt",
     "maxEntries",
     "prizeDescription",
+    // The prize table stays open right through: what a tournament pays is
+    // advertised, not promised under contract, and a club that lands a sponsor
+    // the week before should be able to say so.
+    "prizes",
     "pacing",
   ],
   // Day-of adjustments only: which courts, and when play starts. Pacing stays
   // open because it resizes the court block, which is exactly the kind of
   // day-of correction this stage is for.
-  registration_closed: ["description", "courtIds", "startAt", "prizeDescription", "pacing"],
+  registration_closed: ["description", "courtIds", "startAt", "prizeDescription", "prizes", "pacing"],
   in_progress: [],
   completed: [],
   cancelled: [],

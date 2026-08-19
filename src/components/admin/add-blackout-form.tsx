@@ -17,17 +17,17 @@ export function AddBlackoutForm() {
         type="date"
         name="date"
         required
-        className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
+        className="field w-full"
       />
       <input
         name="reason"
         placeholder="Reason (optional)"
-        className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
+        className="field w-full"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary"
       >
         {pending ? "Adding…" : "Add blackout date"}
       </button>

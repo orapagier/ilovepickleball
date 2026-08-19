@@ -38,12 +38,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // The last-resort UUID only matters for the unique column; the row is
         // located by email either way.
         const googleSub = account?.providerAccountId ?? user.id ?? crypto.randomUUID();
-        // `name`/`phone` are user-owned once set via the registration form
-        // (see /register) — don't let a repeat Google sign-in silently
-        // overwrite what the customer entered there.
+        // `name`/`phone`/`image` are user-owned once set via the registration
+        // and profile forms (see /register, /profile) — don't let a repeat
+        // Google sign-in silently overwrite what the customer entered there.
+        // The Google avatar is a starting value on `create`, nothing more.
         const dbUser = await prisma.user.upsert({
           where: { email },
-          update: { googleSub, image: user.image ?? "", role },
+          update: { googleSub, role },
           create: {
             googleSub,
             email,

@@ -20,6 +20,29 @@ export function formatMoneyCompact(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
+/** Splits a formatted amount into its currency symbol and its digits.
+ *
+ * Prices are set in the data face (Martian Mono), which carries digits but not
+ * every currency sign — and a large figure reads better with the symbol held
+ * back a step anyway. Everything lands in `amount` if there is no symbol to
+ * separate, so a caller can always just concatenate the two. */
+export function splitMoney(cents: number, currency: string): { symbol: string; amount: string } {
+  const parts = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    // Headline rates are whole pesos far more often than not, and a trailing
+    // ".00" under a 2xl figure is two characters of noise.
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+  }).formatToParts(cents / 100);
+  const pick = (want: boolean) =>
+    parts
+      .filter((p) => (p.type === "currency") === want)
+      .map((p) => p.value)
+      .join("")
+      .trim();
+  return { symbol: pick(true), amount: pick(false) };
+}
+
 /** Minutes-from-midnight (0..1440) to a label like "8 AM" or "1:30 PM". */
 export function formatMinuteOfDay(min: number): string {
   const h = Math.floor(min / 60) % 24;

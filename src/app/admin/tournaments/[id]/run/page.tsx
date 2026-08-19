@@ -62,7 +62,7 @@ export default async function TournamentRunPage(props: PageProps<"/admin/tournam
       {/* Which window is live decides what the queue will call, so it belongs
           at the top of the view that runs the day. */}
       {tournament.sessions.length > 0 && (
-        <p className="rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+        <p className="rounded-2xl bg-secondary/60 p-4 text-sm text-muted-foreground">
           {openSession ? (
             <>
               Now playing <strong className="text-foreground">{openSession.name}</strong>, until{" "}
@@ -84,7 +84,7 @@ export default async function TournamentRunPage(props: PageProps<"/admin/tournam
       )}
 
       {tournament.status === "registration_closed" && (
-        <p className="rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+        <p className="rounded-2xl bg-secondary/60 p-4 text-sm text-muted-foreground">
           The draw is made but play hasn&rsquo;t started. Hit <strong>Start play</strong> on the tournament page and the
           first matches go straight onto the courts.
         </p>
@@ -96,7 +96,7 @@ export default async function TournamentRunPage(props: PageProps<"/admin/tournam
           return (
             <div key={court.id} className="surface-card flex flex-col gap-3 p-4">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-display text-lg font-bold">{court.name}</h2>
+                <h2 className="text-lg font-bold">{court.name}</h2>
                 {match ? (
                   <MatchStatusBadge status="in_progress" />
                 ) : (

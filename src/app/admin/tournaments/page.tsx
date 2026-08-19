@@ -22,15 +22,14 @@ export default async function AdminTournamentsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-bold">Tournaments</h1>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {tournaments.length > 0 && (
             <ExportLink href="/api/admin/export/tournaments.csv">Export CSV</ExportLink>
           )}
           <Link
             href="/admin/tournaments/new"
-            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+            className="btn btn-primary"
           >
             <Plus className="size-4" />
             New tournament

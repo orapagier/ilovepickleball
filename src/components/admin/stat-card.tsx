@@ -30,7 +30,7 @@ export function StatCard({
   tint: Tint;
 }) {
   return (
-    <div className="surface-card flex flex-col gap-3 p-4">
+    <div className="surface-card flex flex-col gap-3 p-4 sm:p-5">
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-muted-foreground">
           {label} <span className="text-xs text-muted-foreground/70">/ {tag}</span>
@@ -39,7 +39,7 @@ export function StatCard({
           <Icon className="size-4" />
         </span>
       </div>
-      <p className="font-display text-3xl font-bold">{value}</p>
+      <p className="figure-display text-3xl">{value}</p>
       {trendPct === undefined ? (
         <p className="text-xs text-muted-foreground">{caption}</p>
       ) : (

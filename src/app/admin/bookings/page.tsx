@@ -35,8 +35,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-bold">All bookings</h1>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         {/* Carries the status filter so the file matches the chips above it.
             It is not capped at the 200 rows shown here — an export is for the
             spreadsheet, where the whole history is the point. */}
@@ -108,7 +107,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                   <ActionButton
                     action={adminCancelBooking.bind(null, b.id)}
                     confirmMessage="Cancel this booking?"
-                    className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    className="btn btn-danger btn-sm"
                   >
                     Cancel
                   </ActionButton>
@@ -122,7 +121,7 @@ export default async function AdminBookingsPage(props: PageProps<"/admin/booking
                         }? The slot is freed and the customer is not notified. This cannot be undone.`
                       : "Permanently delete this booking and its payment record? This cannot be undone."
                   }
-                  className="rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+                  className="btn btn-danger btn-sm"
                 >
                   Delete
                 </ActionButton>

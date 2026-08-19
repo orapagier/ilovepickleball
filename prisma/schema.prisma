@@ -290,6 +290,10 @@ model Tournament {
   /// moves — this is what the deletion retention window counts from, so it has
   /// to mean "finished" and nothing else.
   completedAt            DateTime?          @db.Timestamptz(3)
+  /// Free-text prize notes that don't belong to any one placing — "trophies
+  /// for every finalist", "raffle for everyone who plays". The prizes an entry
+  /// can actually win are `prizes` below, one row per place; this survives as
+  /// the extra line, and holds whatever was written before places existed.
   prizeDescription       String             @default("")
   /// Null falls back to the facility-wide figures on `Setting`. Set these when
   /// a format plays faster or slower than the house average — they only affect
@@ -314,6 +318,7 @@ model Tournament {
   registrations Registration[]
   matches       Match[]
   sessions      TournamentSession[]
+  prizes        TournamentPrize[]
   /// The court blocks this tournament holds on the booking calendar.
   courtBlocks   Booking[]
 
@@ -346,6 +351,38 @@ model TournamentSession {
 
 /// Which courts a tournament reserves. A join table rather than an array column
 /// so the court reference is a real FK like every other court reference here.
+/// What an entry wins by finishing in a given place.
+///
+/// One row per placing rather than one free-text blob on the tournament, so a
+/// finished tournament can say *who* won *what* — `finalPlacements` derives the
+/// order from the draw and this table supplies the prize sitting at each place.
+/// A blob could only ever be printed next to the results; it could not be
+/// attached to them.
+model TournamentPrize {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  /// 1 is the champion, 2 the runner-up, and so on. Places an admin doesn't
+  /// award simply have no row — a tournament may pay the top two and nothing
+  /// else, and there is no reason to store a blank third.
+  place        Int
+  /// What this place is called on the day: "Champion", "Runner-up", "3rd place",
+  /// "Pool winner". Free text because the club's wording is the club's, and a
+  /// derived label ("Place 3") reads like a database talking.
+  label        String
+  /// Null when the prize isn't money — a trophy, a paddle, a free month of
+  /// court time. Zero would claim a cash prize of nothing, which is not the
+  /// same thing.
+  amountCents  Int?
+  /// The prize itself when it isn't only cash, e.g. "Trophy + paddle".
+  description  String     @default("")
+
+  /// One prize per place: two rows for 1st is an admin error, not a shape the
+  /// results view could render.
+  @@unique([tournamentId, place])
+  @@index([tournamentId])
+}
+
 model TournamentCourt {
   tournamentId String
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)

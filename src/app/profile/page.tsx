@@ -5,6 +5,9 @@ import { getSettings } from "@/lib/booking-data";
 import { listPublicTournaments } from "@/lib/tournament-data";
 import { describeSkillRating, findSkillOption } from "@/lib/skill";
 import { ProfileForm } from "@/components/profile-form";
+import { PageHeader } from "@/components/page-header";
+import { SignOutButton } from "@/components/auth-buttons";
+import { ShieldCheck } from "lucide-react";
 
 /**
  * A member's own details, and the one place they set the skill level that
@@ -19,7 +22,7 @@ export default async function ProfilePage() {
   const user = await getSessionUser();
   if (!user) redirect("/signin?callbackUrl=/profile");
 
-  const [{ name, phone, skillRating }, settings] = await Promise.all([
+  const [{ name, phone, skillRating, image }, settings] = await Promise.all([
     getProfileCompletion(user.id),
     getSettings(),
   ]);
@@ -35,68 +38,90 @@ export default async function ProfilePage() {
       : await listPublicTournaments({ status: "registration_open", openToRating: skillRating });
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-3xl font-bold">My profile</h1>
-        <Link href="/my-bookings" className="text-sm font-medium text-primary hover:underline">
-          My bookings
-        </Link>
-      </div>
+    <div className="flex flex-1 flex-col">
+      <PageHeader
+        eyebrow="Member"
+        title="My profile"
+        description={user.email ?? "Your details, your level, and the way out."}
+        action={
+          <Link href="/my-bookings" className="btn btn-on-dusk">
+            My bookings
+          </Link>
+        }
+      />
 
-      <section className="surface-card flex flex-col gap-3 p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="font-semibold">Skill level</h2>
-          <p className="text-sm font-medium">{describeSkillRating(skillRating)}</p>
-        </div>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-7 sm:py-9">
+        <section className="surface-card flex flex-col gap-3 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="text-lg">Skill level</h2>
+            <p className="text-sm font-bold text-primary">{describeSkillRating(skillRating)}</p>
+          </div>
 
-        {option ? (
-          <>
-            <p className="text-sm text-muted-foreground">{option.readiness}</p>
+          {option ? (
+            <>
+              <p className="text-sm text-muted-foreground">{option.readiness}</p>
+              <p className="text-sm text-muted-foreground">
+                {openToMe.length === 0 ? (
+                  <>No tournaments are taking entries at your level right now.</>
+                ) : (
+                  <>
+                    {openToMe.length === 1
+                      ? "1 tournament is taking entries"
+                      : `${openToMe.length} tournaments are taking entries`}{" "}
+                    at your level.{" "}
+                    <Link
+                      href={`/tournaments?skill=${skillRating}`}
+                      className="font-bold text-primary hover:underline"
+                    >
+                      Browse them
+                    </Link>
+                    .
+                  </>
+                )}
+              </p>
+            </>
+          ) : (
             <p className="text-sm text-muted-foreground">
-              {openToMe.length === 0 ? (
-                <>No tournaments are taking entries at your level right now.</>
-              ) : (
-                <>
-                  {openToMe.length === 1
-                    ? "1 tournament is taking entries"
-                    : `${openToMe.length} tournaments are taking entries`}{" "}
-                  at your level.{" "}
-                  <Link
-                    href={`/tournaments?skill=${skillRating}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    Browse them
-                  </Link>
-                  .
-                </>
-              )}
+              You haven&rsquo;t set a level yet. That&rsquo;s fine for booking courts and for tournaments open to
+              all levels, but a tournament limited to a range of levels can&rsquo;t take an entry it can&rsquo;t
+              place — set one below and you can enter straight away.
             </p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            You haven&rsquo;t set a level yet. That&rsquo;s fine for booking courts and for tournaments open to all
-            levels, but a tournament limited to a range of levels can&rsquo;t take an entry it can&rsquo;t place —
-            set one below and you can enter straight away.
+          )}
+
+          {/* Self-declared, and said so plainly: a member who thinks the number is
+              verified will read a band as an insult rather than a category. */}
+          <p className="text-xs text-muted-foreground">
+            You set this yourself, and {settings.businessName} staff can correct it. Changing it never affects an
+            entry already accepted into a draw.
           </p>
-        )}
+        </section>
 
-        {/* Self-declared, and said so plainly: a member who thinks the number is
-            verified will read a band as an insult rather than a category. */}
-        <p className="text-xs text-muted-foreground">
-          You set this yourself, and {settings.businessName} staff can correct it. Changing it never affects an
-          entry already accepted into a draw.
-        </p>
-      </section>
+        <section className="surface-card flex flex-col gap-4 p-5">
+          <h2 className="text-lg">Your details</h2>
+          <ProfileForm
+            defaultName={name}
+            defaultPhone={phone}
+            defaultSkillRating={skillRating}
+            defaultImage={image}
+            email={user.email ?? ""}
+          />
+        </section>
 
-      <section className="surface-card flex flex-col gap-4 p-5">
-        <h2 className="font-semibold">Your details</h2>
-        <ProfileForm
-          defaultName={name}
-          defaultPhone={phone}
-          defaultSkillRating={skillRating}
-          email={user.email ?? ""}
-        />
-      </section>
+        {/* On a phone the tab bar has no room for these two, and this is where
+            somebody looks for them — the same place every app keeps them. */}
+        <section className="surface-card flex flex-wrap items-center justify-between gap-3 p-5">
+          <h2 className="text-lg">Account</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            {user.role === "admin" && (
+              <Link href="/admin" className="btn btn-sm btn-outline">
+                <ShieldCheck className="size-4" />
+                Admin
+              </Link>
+            )}
+            <SignOutButton />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

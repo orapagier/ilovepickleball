@@ -8,7 +8,6 @@ export default async function AdminBlackoutsPage() {
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
-      <h1 className="text-3xl font-bold">Blackout dates</h1>
       <p className="text-sm text-muted-foreground">
         Days the court is fully closed regardless of the weekly schedule (holidays, maintenance, etc.).
       </p>
@@ -25,7 +24,7 @@ export default async function AdminBlackoutsPage() {
               <ActionButton
                 action={deleteBlackout.bind(null, iso)}
                 confirmMessage="Remove this blackout date?"
-                className="rounded-full border border-destructive/30 px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                className="btn btn-danger btn-sm"
               >
                 Remove
               </ActionButton>

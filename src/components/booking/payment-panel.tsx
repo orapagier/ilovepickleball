@@ -29,17 +29,17 @@ export function PaymentPanel({
       <input type="hidden" name="payMethod" value={method} />
 
       <div>
-        <span className="text-sm font-medium text-foreground">Pay via</span>
-        <div className="mt-1 flex flex-wrap gap-2">
+        <span className="text-sm font-bold text-foreground">Pay via</span>
+        <div className="mt-2 flex flex-wrap gap-2">
           {METHODS.map((m) => (
             <button
               key={m.value}
               type="button"
               onClick={() => setMethod(m.value)}
               className={cn(
-                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                "rounded-full px-3.5 py-2 text-sm font-bold transition-colors",
                 method === m.value
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary text-primary-foreground shadow-glow"
                   : "bg-secondary text-secondary-foreground hover:bg-accent",
               )}
             >
@@ -49,27 +49,27 @@ export function PaymentPanel({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-secondary/50 p-3 text-sm">
+      <div className="rounded-2xl bg-secondary/60 p-4 text-sm">
         <p className="text-muted-foreground">Send payment to:</p>
         <p>
           <strong>{account.name || "(account name not set)"}</strong> — {account.number || "(account number not set)"}
         </p>
       </div>
 
-      <label className="text-sm font-medium text-foreground">
+      <label className="text-sm font-bold text-foreground">
         Reference number
         <input
           name="referenceNumber"
           required
           placeholder="e.g. 1234567890123"
-          className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          className="field mt-1 w-full"
         />
       </label>
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-primary px-6 py-2 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary"
       >
         {pending ? "Submitting…" : "I've paid — submit reference"}
       </button>

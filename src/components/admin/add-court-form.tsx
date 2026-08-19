@@ -17,12 +17,12 @@ export function AddCourtForm() {
         name="name"
         placeholder="e.g. Court 3"
         required
-        className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
+        className="field w-full"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary"
       >
         {pending ? "Adding…" : "Add court"}
       </button>

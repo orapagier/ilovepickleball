@@ -33,7 +33,7 @@ export function SkillRatingControl({ userId, rating }: { userId: string; rating:
           defaultValue={rating === null ? "" : String(rating)}
           disabled={pending}
           onChange={(e) => save(e.target.value)}
-          className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+          className="field field-sm"
         >
           <option value="">Not rated</option>
           {SKILL_RATINGS.map((r) => (

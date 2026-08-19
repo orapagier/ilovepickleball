@@ -8,22 +8,10 @@ import { SignInButton } from "@/components/auth-buttons";
 import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay, dateStripParts } from "@/lib/format";
 import { groupSlotsIntoRuns, MAX_SELECTED_SLOTS } from "@/lib/scheduling";
 import { localMinuteOfDay, localWeekday, tierRateForMinute, type PriceTier } from "@/lib/pricing";
+import { SABBATH_END, SABBATH_START, sabbathBound } from "@/lib/hours-summary";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
-
-const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-/** The Sabbath this business keeps: sunset Friday to sunset Saturday, held as
- *  fixed local clock times the same way the open hours are, and deliberately
- *  separate from them — the courts reopen an hour after the Sabbath ends, so
- *  the closed window and the Sabbath itself are not the same span. */
-const SABBATH_START = { weekday: 5, minute: 17 * 60 };
-const SABBATH_END = { weekday: 6, minute: 17 * 60 };
-
-function sabbathBound(bound: { weekday: number; minute: number }): string {
-  return `${WEEKDAY_NAMES[bound.weekday]} ${formatMinuteOfDay(bound.minute)}`;
-}
 
 type Court = { id: number; name: string };
 type SlotStatus = "available" | "confirmed" | "pending" | "past";
@@ -104,6 +92,10 @@ export function BookingFlow({
   signedIn,
   needsRegistration,
   closedLabel,
+  inSabbath,
+  initialDate,
+  initialStart,
+  initialCourt,
 }: {
   courts: Court[];
   todayISO: string;
@@ -117,8 +109,18 @@ export function BookingFlow({
   signedIn: boolean;
   needsRegistration: boolean;
   closedLabel: string | null;
+  /** Whether the Sabbath is running as this page is served — the weekly closure
+   *  notice states a closure in force, not a policy, so it only shows then. */
+  inSabbath: boolean;
+  /** The day, hour and court the homepage card handed over, if it did. The hour
+   *  is a start time in epoch ms; the court is the one the visitor chose there,
+   *  and falls back to the first that still has the hour when it has gone in
+   *  the meantime. */
+  initialDate?: string;
+  initialStart?: number;
+  initialCourt?: number;
 }) {
-  const [date, setDate] = useState(todayISO);
+  const [date, setDate] = useState(initialDate ?? todayISO);
   const [slotsByCourt, setSlotsByCourt] = useState<Record<number, Slot[]>>({});
   const [loading, setLoading] = useState(true);
   const [maxHours, setMaxHours] = useState(6);
@@ -128,6 +130,9 @@ export function BookingFlow({
   const [note, setNote] = useState("");
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createBooking, {});
   const stripRef = useRef<HTMLDivElement>(null);
+  /* Once only: the handed-over hour is a starting point, not a lock — reloading
+     the day or ticking it off must not put it back. */
+  const appliedStart = useRef(false);
   const [stripEdges, setStripEdges] = useState({ start: false, end: false });
 
   const totalAdvanceDays = daysBetweenISO(todayISO, maxISO);
@@ -190,6 +195,17 @@ export function BookingFlow({
         const byCourt: Record<number, Slot[]> = {};
         for (const [courtId, data] of entries) byCourt[courtId] = data.slots ?? [];
         setSlotsByCourt(byCourt);
+        if (initialStart && !appliedStart.current) {
+          appliedStart.current = true;
+          const free = (id: number) => byCourt[id]?.some((s) => s.startMs === initialStart && s.available);
+          const court = courts.find((c) => (initialCourt ? c.id === initialCourt && free(c.id) : free(c.id)));
+          /* The chosen court taken since the homepage drew it: tick whichever
+             is still free rather than nothing, so the visitor lands on an hour
+             they can book instead of an empty grid. */
+          const fallback = initialCourt ? courts.find((c) => free(c.id)) : undefined;
+          const target = court ?? fallback;
+          if (target) setSelected(new Set([pickKey(target.id, initialStart)]));
+        }
         const first = entries[0]?.[1];
         if (first) {
           setMaxHours(first.maxHours ?? 6);
@@ -202,7 +218,7 @@ export function BookingFlow({
     return () => {
       cancelled = true;
     };
-  }, [date, courts]);
+  }, [date, courts, initialStart, initialCourt]);
 
   /* Rows are the union of every court's start times for the selected day, so a
      court that is individually closed still leaves a gap in its own column
@@ -283,11 +299,9 @@ export function BookingFlow({
 
   const sabbathCard = (
     <div className="surface-card flex flex-col items-center gap-4 p-5 text-center sm:p-6">
-      <span className="flex size-11 items-center justify-center rounded-full bg-primary/10">
-        <Sunset className="size-5 text-primary" />
-      </span>
+      <Sunset className="size-6 text-primary" />
       <div className="space-y-1.5">
-        <h3 className="font-display text-lg font-bold sm:text-xl">Closed for the Sabbath</h3>
+        <h3 className="text-lg sm:text-xl">Closed for the Sabbath</h3>
         <p className="mx-auto max-w-prose text-sm text-muted-foreground">
           We keep the seventh day as a day of rest and worship, so no courts are booked from{" "}
           <span className="font-semibold text-foreground">{sabbathBound(SABBATH_START)}</span> to{" "}
@@ -295,12 +309,12 @@ export function BookingFlow({
           {sabbathNoteAfterGrid ? "above" : "below"} are the ones outside that — we&rsquo;d love to have you then.
         </p>
       </div>
-      <blockquote className="mx-auto max-w-prose rounded-lg border-l-2 border-primary bg-primary/5 px-4 py-3 text-left">
+      <blockquote className="mx-auto max-w-prose rounded-2xl bg-primary/8 px-5 py-4 text-left">
         <p className="text-sm italic leading-relaxed text-foreground">
           &ldquo;Remember the sabbath day, to keep it holy. Six days shalt thou labour, and do all thy work: but the
           seventh day is the sabbath of the LORD thy God: in it thou shalt not do any work.&rdquo;
         </p>
-        <footer className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
+        <footer className="mt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-primary">
           Exodus 20:8&ndash;10 (KJV)
         </footer>
       </blockquote>
@@ -309,10 +323,11 @@ export function BookingFlow({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-6 sm:gap-5 sm:px-4 sm:py-8">
-      {/* Suppressed on the two days that carry the full Sabbath card below, so a
-          visitor never reads two overlapping closure notices at once. */}
-      {closedLabel && !isSabbathDay && (
-        <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+      {/* Only while the Sabbath is actually on, and suppressed on the two days
+          that carry the full Sabbath card below, so a visitor never reads two
+          overlapping closure notices at once. */}
+      {closedLabel && inSabbath && !isSabbathDay && (
+        <p className="flex items-start gap-2.5 rounded-2xl bg-primary/8 px-4 py-3.5 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0 text-primary" />
           <span>Closed weekly {closedLabel} — we keep the seventh-day Sabbath.</span>
         </p>
@@ -320,8 +335,8 @@ export function BookingFlow({
 
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-bold sm:text-2xl">{formatDateLabel(date)}</h2>
-          <p className="text-[11px] text-muted-foreground sm:text-xs">Book up to {totalAdvanceDays} days ahead</p>
+          <h2 className="truncate text-xl sm:text-2xl">{formatDateLabel(date)}</h2>
+          <p className="mt-0.5 text-[0.6875rem] text-muted-foreground sm:text-xs">Book up to {totalAdvanceDays} days ahead</p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -330,7 +345,7 @@ export function BookingFlow({
             onClick={() => selectDate(addDaysISO(date, -1))}
             disabled={date <= todayISO}
             aria-label="Previous day"
-            className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card"
+            className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card"
           >
             <ChevronLeft className="size-4" />
           </button>
@@ -338,7 +353,7 @@ export function BookingFlow({
           {/* The date input is stretched transparently over the icon so the whole
               square is the hit target; desktop browsers won't open the picker on
               a plain click, hence the explicit showPicker(). */}
-          <div className="relative flex size-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+          <div className="relative flex size-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
             <CalendarDays className="size-4" />
             <input
               type="date"
@@ -363,7 +378,7 @@ export function BookingFlow({
             onClick={() => selectDate(addDaysISO(date, 1))}
             disabled={date >= maxISO}
             aria-label="Next day"
-            className="flex size-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card"
+            className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card"
           >
             <ChevronRight className="size-4" />
           </button>
@@ -381,7 +396,7 @@ export function BookingFlow({
           onClick={() => scrollStrip(-1)}
           disabled={!stripEdges.start}
           aria-label="Scroll dates backward"
-          className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
+          className="hidden size-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
         >
           <ChevronLeft className="size-4" />
         </button>
@@ -404,10 +419,10 @@ export function BookingFlow({
                 aria-pressed={isActive}
                 aria-label={formatDateLabel(d)}
                 className={cn(
-                  "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition-colors sm:min-w-16",
+                  "flex min-w-14 shrink-0 snap-start flex-col items-center gap-0.5 rounded-2xl border px-2 py-2.5 transition-[colors,box-shadow] sm:min-w-16",
                   isActive
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                    ? "border-transparent bg-primary text-primary-foreground shadow-glow"
+                    : "border-border bg-card text-foreground hover:border-primary/60 hover:bg-accent",
                   /* Today keeps a faint ring so the strip still reads as "starts
                      here" once it has been scrolled away from the left edge. */
                   !isActive && d === todayISO && "ring-1 ring-primary/40",
@@ -416,7 +431,7 @@ export function BookingFlow({
                 {/* Opacity rather than a muted token, so the two small lines stay
                     legible against the filled background of the selected cell. */}
                 <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{weekday}</span>
-                <span className="text-base font-bold leading-none sm:text-lg">{day}</span>
+                <span className="data-value text-base font-bold leading-none sm:text-lg">{day}</span>
                 <span className="text-[10px] uppercase opacity-70">{month}</span>
               </button>
             );
@@ -428,7 +443,7 @@ export function BookingFlow({
           onClick={() => scrollStrip(1)}
           disabled={!stripEdges.end}
           aria-label="Scroll dates forward"
-          className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
+          className="hidden size-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-card sm:flex"
         >
           <ChevronRight className="size-4" />
         </button>
@@ -441,8 +456,9 @@ export function BookingFlow({
       ) : rows.length === 0 ? (
         <p className="surface-card p-6 text-center text-sm text-muted-foreground">Closed this day.</p>
       ) : (
-        <div className="surface-card overflow-hidden">
-          <div className="overflow-x-auto">
+        <>
+          <div className="surface-card overflow-hidden">
+            <div className="overflow-x-auto">
             {/* The grid fills the card rather than sizing to its content, so two
                 courts stay side by side on a phone instead of pushing the time
                 column off-screen. Columns only stop shrinking at their minimums
@@ -477,7 +493,7 @@ export function BookingFlow({
                         day-part divider reads as its own thing against the court
                         header and the time column, which share that neutral. */}
                     {showBand && (
-                      <div className="col-span-full border-b border-border bg-primary/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary sm:px-4 sm:text-xs">
+                      <div className="col-span-full border-b border-border bg-primary/10 px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-[0.14em] text-primary sm:px-4 sm:text-xs">
                         {row.part}
                       </div>
                     )}
@@ -485,7 +501,7 @@ export function BookingFlow({
                     <div className={cn("flex items-center px-3 py-2 sm:px-4", rule)}>
                       {/* Nowrap keeps the pair on one line; the `auto` track
                           widens to fit it rather than the label wrapping. */}
-                      <span className="whitespace-nowrap font-mono text-[10px] font-semibold tracking-tight sm:text-xs">
+                      <span className="data-value whitespace-nowrap text-[0.625rem] font-bold sm:text-xs">
                         {row.rangeLabel}
                       </span>
                     </div>
@@ -499,7 +515,7 @@ export function BookingFlow({
                       if (!slot) {
                         return (
                           <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
-                            <span className="flex h-11 w-full items-center justify-center text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/50 sm:text-xs">
+                            <span className="flex h-12 w-full items-center justify-center text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/50 sm:text-xs">
                               N/A
                             </span>
                           </div>
@@ -516,7 +532,7 @@ export function BookingFlow({
                           <div key={court.id} className={cn("flex items-center p-1.5 sm:p-2", rule)}>
                             <span
                               title={`${state} — ${holder}`}
-                              className="flex h-11 w-full items-center justify-between gap-1.5 rounded-xl bg-muted/60 px-2.5 text-muted-foreground sm:gap-2 sm:px-3"
+                              className="flex h-12 w-full items-center justify-between gap-1.5 rounded-xl bg-muted px-2.5 text-muted-foreground sm:gap-2 sm:px-3"
                             >
                               <span className="flex min-w-0 flex-col items-start leading-tight">
                                 <span className="text-[9px] font-semibold uppercase tracking-[0.12em] opacity-70 sm:text-[10px]">
@@ -540,17 +556,17 @@ export function BookingFlow({
                             aria-pressed={isPicked}
                             aria-label={`${court.name}, ${row.rangeLabel}, open, ${formatMoney(row.slotCents, currency)}`}
                             className={cn(
-                              "flex h-11 w-full items-center justify-between gap-1.5 rounded-xl border px-2.5 transition-colors sm:gap-2 sm:px-3",
+                              "flex h-12 w-full items-center justify-between gap-1.5 rounded-xl border px-2.5 transition-[colors,box-shadow] sm:gap-2 sm:px-3",
                               isPicked
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                                ? "border-transparent bg-primary text-primary-foreground shadow-glow"
+                                : "border-border bg-card text-foreground hover:border-primary/60 hover:bg-accent",
                             )}
                           >
                             <span className="flex min-w-0 flex-col items-start leading-tight">
                               <span className="text-[9px] font-semibold uppercase tracking-[0.12em] opacity-70 sm:text-[10px]">
                                 Open
                               </span>
-                              <span className="max-w-full truncate text-xs font-bold sm:text-sm">
+                              <span className="data-value max-w-full truncate text-xs font-bold sm:text-sm">
                                 {formatMoneyCompact(row.slotCents, currency)}
                               </span>
                             </span>
@@ -569,20 +585,27 @@ export function BookingFlow({
                 );
               })}
             </div>
+            </div>
           </div>
 
-          {/* The running total lives with the grid it counts, so ticking a cell
-              and watching the bill move never costs a scroll. */}
-          <div className="border-t border-border p-4 sm:p-5">
+          {/* The running total, and on a phone it rides the bottom of the screen
+              as you scroll the grid: picking a slot two hours down the page and
+              then hunting for the total is the one thing that made this feel
+              like a web page rather than an app. It sits just above the tab bar,
+              solid rather than frosted — floating over a grid of ticked cells,
+              glass left the total competing with whatever scrolled under it. On
+              a laptop the whole grid is in view, so it goes back to being the
+              last block on the page. */}
+          <div className="surface-raised sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 p-4 sm:p-5 md:static">
             {limitNote && (
-              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+              <p className="mb-4 flex items-start gap-2.5 rounded-2xl bg-primary/8 px-4 py-3.5 text-sm text-muted-foreground">
                 <Info className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>{limitNote}</span>
               </p>
             )}
 
             {longestRun >= CALL_REQUIRED_HOURS && (
-              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+              <p className="mb-4 flex items-start gap-2.5 rounded-2xl bg-primary/8 px-4 py-3.5 text-sm text-muted-foreground">
                 <Info className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>
                   {CALL_REQUIRED_HOURS}+ hours back to back on one court are held for {holdMinutes} minutes while you
@@ -592,7 +615,7 @@ export function BookingFlow({
             )}
 
             {runs.length > 1 && (
-              <p className="mb-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-sm text-muted-foreground">
+              <p className="mb-4 flex items-start gap-2.5 rounded-2xl bg-primary/8 px-4 py-3.5 text-sm text-muted-foreground">
                 <Info className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>
                   Your picks aren&rsquo;t all back to back on one court, so they become {runs.length} separate
@@ -609,11 +632,13 @@ export function BookingFlow({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">
                   Selected slots
                 </p>
-                <p className="mt-1 text-lg font-bold sm:text-xl">
+                <p className="data-value mt-1 text-lg font-bold sm:text-xl">
                   {selected.size === 0 ? "No slots yet" : `${selected.size} ${selected.size === 1 ? "Slot" : "Slots"}`}
                 </p>
                 {selected.size > 0 && (
-                  <p className="text-sm text-muted-foreground">Total {formatMoney(totalCents, currency)}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    Total <span className="data-value font-bold text-foreground">{formatMoney(totalCents, currency)}</span>
+                  </p>
                 )}
               </div>
 
@@ -622,7 +647,7 @@ export function BookingFlow({
               ) : needsRegistration ? (
                 <Link
                   href="/register?callbackUrl=/book"
-                  className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+                  className="btn btn-primary px-6 py-3"
                 >
                   Complete profile
                 </Link>
@@ -633,7 +658,7 @@ export function BookingFlow({
                   <button
                     type="submit"
                     disabled={pending || selected.size === 0}
-                    className="inline-flex items-center gap-2 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="btn btn-primary px-8 py-3"
                   >
                     {pending ? "Booking…" : "Confirm"}
                     {!pending && <Check className="size-4" />}
@@ -644,7 +669,7 @@ export function BookingFlow({
 
             {selected.size > 0 && signedIn && !needsRegistration && (
               <div className="mt-4">
-                <label htmlFor="note" className="mb-1 block text-sm font-medium text-muted-foreground">
+                <label htmlFor="note" className="mb-1.5 block text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
                   Note (optional)
                 </label>
                 <textarea
@@ -652,12 +677,12 @@ export function BookingFlow({
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  className="field w-full"
                 />
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
 
       {/* Last on Friday, so picking a slot never pushes the booking form below

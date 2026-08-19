@@ -8,7 +8,6 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
       <DashboardStatCards stats={stats} currency={settings.currency} />
       <RevenueAnalyticsCard stats={stats} currency={settings.currency} />
     </div>

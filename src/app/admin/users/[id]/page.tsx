@@ -108,7 +108,7 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
           <h1 className="flex flex-wrap items-center gap-3 text-3xl font-bold">
             {user.name || "Unnamed"}
             {user.role === "admin" && (
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Admin</span>
+              <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-primary">Admin</span>
             )}
           </h1>
           {/* No self-delete: the action refuses it, so don't offer it. */}
@@ -121,7 +121,7 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
                 user.bookings.length,
               )}
               pendingLabel="Deleting…"
-              className="rounded-full bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20"
+              className="btn btn-danger"
             >
               Delete user
             </ActionButton>
@@ -193,7 +193,7 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
                   <ActionButton
                     action={adminDeleteBooking.bind(null, b.id)}
                     confirmMessage="Permanently delete this booking and its payment record? This cannot be undone."
-                    className="rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
+                    className="btn btn-danger btn-sm"
                   >
                     Delete
                   </ActionButton>

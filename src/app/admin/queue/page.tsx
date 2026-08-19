@@ -23,7 +23,6 @@ export default async function AdminQueuePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-3xl font-bold">Pending actions</h1>
       {bookings.length === 0 && (
         <p className="surface-card p-8 text-center text-sm text-muted-foreground">
           Nothing needs your attention right now.
@@ -77,7 +76,7 @@ export default async function AdminQueuePage() {
                   </p>
                   <ActionButton
                     action={verifyBooking.bind(null, b.id)}
-                    className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+                    className="btn btn-primary btn-sm"
                   >
                     Verify
                   </ActionButton>
@@ -89,14 +88,14 @@ export default async function AdminQueuePage() {
                 <div className="mt-3 flex flex-wrap gap-3">
                   <ActionButton
                     action={confirmCallBooking.bind(null, b.id)}
-                    className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+                    className="btn btn-primary btn-sm"
                   >
                     Confirm call received
                   </ActionButton>
                   <ActionButton
                     action={adminCancelBooking.bind(null, b.id)}
                     confirmMessage="Cancel this booking?"
-                    className="rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    className="btn btn-danger btn-sm"
                   >
                     Cancel
                   </ActionButton>

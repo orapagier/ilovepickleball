@@ -40,8 +40,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-3xl font-bold">Registered users</h1>
+      <div className="flex flex-wrap items-end justify-end gap-3">
         <p className="text-sm text-muted-foreground">
           {users.length} {users.length === 1 ? "user" : "users"}
           {q ? " matching" : ""}
@@ -59,7 +58,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
             defaultValue={q}
             placeholder="Search name, email, or mobile number"
             aria-label="Search users"
-            className="w-full rounded-lg border border-input bg-background py-2 pl-9 pr-3 text-sm"
+            className="field pl-9 w-full"
           />
         </div>
         <button
@@ -97,7 +96,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
                 <p className="flex flex-wrap items-center gap-2 font-medium">
                   {u.name || "Unnamed"}
                   {u.role === "admin" && (
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-primary">
                       Admin
                     </span>
                   )}
@@ -128,7 +127,7 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
                 <ActionButton
                   action={adminDeleteUser.bind(null, u.id)}
                   confirmMessage={deleteUserMessage(u.name || u.email, u.role === "admin", u._count.bookings)}
-                  className="shrink-0 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+                  className="btn btn-danger btn-sm shrink-0"
                 >
                   Delete
                 </ActionButton>

@@ -1,7 +1,30 @@
 import { formatMinuteOfDay } from "@/lib/format";
+import { localMinuteOfDay, localWeekday } from "@/lib/pricing";
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_NAMES_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The Sabbath this business keeps: sunset Friday to sunset Saturday, held as
+ *  fixed local clock times the same way the open hours are, and deliberately
+ *  separate from them — the courts reopen an hour after the Sabbath ends, so
+ *  the closed window and the Sabbath itself are not the same span. */
+export const SABBATH_START = { weekday: 5, minute: 17 * 60 };
+export const SABBATH_END = { weekday: 6, minute: 17 * 60 };
+
+/** "Friday 5:00 PM" — one end of the Sabbath, written out. */
+export function sabbathBound(bound: { weekday: number; minute: number }): string {
+  return `${WEEKDAY_NAMES_FULL[bound.weekday]} ${formatMinuteOfDay(bound.minute)}`;
+}
+
+/** Is the Sabbath running right now, by the business's own clock? Asked on the
+ *  server so the answer is one value both renders agree on. */
+export function isSabbathNow(tz: string, now: Date = new Date()): boolean {
+  const minuteOfWeek = localWeekday(now, tz) * 1440 + localMinuteOfDay(now, tz);
+  return (
+    minuteOfWeek >= SABBATH_START.weekday * 1440 + SABBATH_START.minute &&
+    minuteOfWeek < SABBATH_END.weekday * 1440 + SABBATH_END.minute
+  );
+}
 
 /** Collapses adjacent weekdays with identical hours into readable ranges. */
 export function summarizeHours(hours: { weekday: number; openMin: number; closeMin: number }[]): string[] {

@@ -56,7 +56,7 @@ export function RescheduleControl({
           setLoading(true);
           setOpen(true);
         }}
-        className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+        className="btn btn-outline btn-sm"
       >
         Reschedule
       </button>
@@ -68,7 +68,7 @@ export function RescheduleControl({
   return (
     <form
       action={formAction}
-      className="mt-3 flex w-full flex-col gap-3 rounded-lg border border-border bg-secondary/40 p-3"
+      className="mt-3 flex w-full flex-col gap-3 rounded-2xl bg-secondary/60 p-4"
     >
       <input type="hidden" name="bookingId" value={bookingId} />
       <input type="hidden" name="courtId" value={courtId} />
@@ -104,7 +104,7 @@ export function RescheduleControl({
           setDate(e.target.value);
           setSelectedStartMs(null);
         }}
-        className="h-9 w-fit rounded-lg border border-input bg-background px-3 text-sm"
+        className="field h-9 w-fit py-0"
       />
 
       {loading ? (
@@ -143,7 +143,7 @@ export function RescheduleControl({
             id={`hours-${bookingId}`}
             value={hours}
             onChange={(e) => setHours(Number(e.target.value))}
-            className="rounded-lg border border-input bg-background px-2 py-1 text-sm"
+            className="field field-sm"
           >
             {Array.from({ length: 6 }, (_, i) => i + 1).map((h) => (
               <option key={h} value={h}>
@@ -160,14 +160,14 @@ export function RescheduleControl({
         <button
           type="submit"
           disabled={pending || selectedStartMs === null}
-          className="rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+          className="btn btn-primary btn-sm"
         >
           {pending ? "Saving…" : "Confirm new time"}
         </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
+          className="btn btn-outline btn-sm text-muted-foreground"
         >
           Cancel
         </button>

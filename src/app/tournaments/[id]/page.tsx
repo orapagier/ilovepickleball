@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarClock, CalendarDays, Coins, Info, MapPin, Trophy, Users } from "lucide-react";
+import { CalendarClock, CalendarDays, ChevronLeft, Coins, Info, MapPin, Trophy, Users } from "lucide-react";
 import { getSessionUser, getProfileCompletion } from "@/lib/auth-helpers";
 import { getSettings } from "@/lib/booking-data";
 import { formatDateTimeLabel, formatMoney, formatTimeOnly } from "@/lib/format";
@@ -18,6 +18,7 @@ import { SignInButton } from "@/components/auth-buttons";
 import { Bracket } from "@/components/tournament/bracket";
 import { JoinPanel, type PayeeAccount, type SkillBlock } from "@/components/tournament/join-panel";
 import { PoolTables, StandingsTable } from "@/components/tournament/standings-table";
+import { PrizeList, WinnersCard } from "@/components/tournament/results-card";
 import { TournamentChip, TournamentStatusBadge } from "@/components/tournament/status-badge";
 import { canEnterAtRating, formatSkillBand, formatSkillRating, hasSkillBand } from "@/lib/skill";
 
@@ -95,51 +96,72 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
     : undefined;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-3 py-6 sm:px-4 sm:py-8">
-      <div className="flex flex-col gap-3">
-        <Link href="/tournaments" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
-          ← All tournaments
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="font-display text-2xl font-bold sm:text-3xl">{tournament.name}</h1>
-          {/* The status stays `registration_open` from publish onward, so a
-              tournament waiting on its opening date would otherwise be badged
-              as taking entries it won't accept. */}
-          {awaitingOpen ? (
-            <TournamentChip className="border-primary/30 bg-primary/10 text-primary">
-              Opens {formatDateTimeLabel(tournament.registrationOpensAt!, tz)}
+    <div className="flex flex-1 flex-col">
+      <header className="dusk-panel">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5 px-4 pb-9 pt-5 sm:pb-11">
+          <Link
+            href="/tournaments"
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-bold text-dusk-foreground/70 transition-colors hover:text-dusk-foreground"
+          >
+            <ChevronLeft className="size-4" />
+            All tournaments
+          </Link>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-3xl sm:text-4xl">{tournament.name}</h1>
+            {/* The status stays `registration_open` from publish onward, so a
+                tournament waiting on its opening date would otherwise be badged
+                as taking entries it won't accept. */}
+            {awaitingOpen ? (
+              <TournamentChip className="bg-white/15 text-dusk-foreground">
+                Opens {formatDateTimeLabel(tournament.registrationOpensAt!, tz)}
+              </TournamentChip>
+            ) : (
+              <TournamentStatusBadge status={tournament.status} />
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <TournamentChip className="bg-white/12 text-dusk-foreground">
+              {FORMAT_LABELS[tournament.format]}
             </TournamentChip>
-          ) : (
-            <TournamentStatusBadge status={tournament.status} />
+            <TournamentChip className="bg-white/12 text-dusk-foreground">
+              {PLAY_TYPE_LABELS[tournament.playType]}
+            </TournamentChip>
+            <TournamentChip className="bg-white/12 text-dusk-foreground">
+              {formatSkillBand(tournament.minSkillRating, tournament.maxSkillRating)}
+            </TournamentChip>
+          </div>
+          {tournament.description && (
+            <p className="max-w-prose text-sm leading-relaxed text-dusk-foreground/75 sm:text-base">
+              {tournament.description}
+            </p>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <TournamentChip>{FORMAT_LABELS[tournament.format]}</TournamentChip>
-          <TournamentChip>{PLAY_TYPE_LABELS[tournament.playType]}</TournamentChip>
-          <TournamentChip>{formatSkillBand(tournament.minSkillRating, tournament.maxSkillRating)}</TournamentChip>
-        </div>
-        {tournament.description && (
-          <p className="max-w-prose text-sm text-muted-foreground sm:text-base">{tournament.description}</p>
-        )}
-      </div>
+      </header>
 
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:py-8">
+      {/* The one time-critical thing on this page, in the one colour this app
+          keeps for things happening this minute. */}
       {myLiveMatch && (
-        <div className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 p-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/20">
-            <Trophy className="size-5 text-success" />
+        <div className="flex items-center gap-3 rounded-2xl bg-bloom p-4 text-bloom-foreground shadow-raised">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-bloom-foreground/15">
+            <Trophy className="size-5" />
           </span>
           <div className="min-w-0">
-            <p className="font-bold text-success">
-              You&rsquo;re up — {myLiveMatch.court?.name ?? "court to be called"}
-            </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="font-bold">You&rsquo;re up — {myLiveMatch.court?.name ?? "court to be called"}</p>
+            <p className="text-sm opacity-80">
               {entryName(myLiveMatch.sideA!)} vs {entryName(myLiveMatch.sideB!)}
             </p>
           </div>
         </div>
       )}
 
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* One panel divided into cells, not six separate cards. Six bordered,
+          shadowed boxes floating in a grid gave the top of this page a scattered
+          look and repeated the same frame six times to say one thing: here are
+          the facts. The `gap-px` over a border-coloured background draws
+          hairlines between the cells at every breakpoint without any per-cell
+          border juggling. */}
+      <dl className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-card sm:grid-cols-2 lg:grid-cols-3">
         <Fact icon={<CalendarDays className="size-4" />} label="Play starts">
           {formatDateTimeLabel(tournament.startAt, tz)}
         </Fact>
@@ -165,10 +187,31 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
         </Fact>
       </dl>
 
-      {tournament.prizeDescription && (
+      {/* Once it is over the prizes stop being an advertisement and become a
+          result: who took which one. Before that they are the advertisement, and
+          are exactly what a member weighing up the entry fee is looking for — so
+          the same table renders as two different things either side of the last
+          match. */}
+      {tournament.status === "completed" && tournament.matches.length > 0 && (
+        <WinnersCard
+          tournament={tournament}
+          registrations={tournament.registrations}
+          matches={tournament.matches}
+          prizes={tournament.prizes}
+        />
+      )}
+
+      {(tournament.prizeDescription || (tournament.prizes.length > 0 && tournament.status !== "completed")) && (
         <div className="surface-card p-4 sm:p-5">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Prizes</h3>
-          <p className="mt-1.5 text-sm">{tournament.prizeDescription}</p>
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Prizes</h3>
+          {tournament.status !== "completed" && (
+            <PrizeList prizes={tournament.prizes} currency={tournament.currency} className="mt-2" />
+          )}
+          {tournament.prizeDescription && (
+            <p className={tournament.prizes.length > 0 ? "mt-3 text-sm text-muted-foreground" : "mt-1.5 text-sm"}>
+              {tournament.prizeDescription}
+            </p>
+          )}
         </div>
       )}
 
@@ -188,7 +231,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
           </p>
           <Link
             href={`/register?callbackUrl=/tournaments/${tournament.id}`}
-            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+            className="btn btn-primary"
           >
             Complete profile
           </Link>
@@ -213,7 +256,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
           why, not left to notice the absence of a control. */}
       {!joinable && !myEntry && (
         <div className="surface-card flex items-start gap-3 p-4 sm:p-5">
-          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+          <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
             {awaitingOpen ? (
               <CalendarClock className="size-4 text-primary" />
             ) : (
@@ -233,7 +276,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
           than anything else on this page — so it comes before the draw. */}
       {tournament.sessions.length > 0 && (
         <section className="flex flex-col gap-3">
-          <h2 className="font-display text-lg font-bold sm:text-xl">Schedule</h2>
+          <h2 className="text-xl sm:text-2xl">Schedule</h2>
           <ul className="surface-card divide-y divide-border">
             {tournament.sessions.map((session) => {
               const inSession = tournament.matches.filter((m) => m.sessionId === session.id);
@@ -253,7 +296,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
                     </p>
                   </div>
                   {mine.length > 0 && (
-                    <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    <span className="shrink-0 rounded-full bg-primary/12 px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-primary">
                       You play here
                     </span>
                   )}
@@ -269,7 +312,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
       )}
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-display text-lg font-bold sm:text-xl">
+        <h2 className="text-xl sm:text-2xl">
           {drawn ? resultsHeading(tournament.format) : "Entries"}
         </h2>
 
@@ -301,17 +344,18 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
       </section>
 
       {drawn && showsMatchList(tournament.format) && <MatchList tournament={tournament} />}
+      </div>
     </div>
   );
 }
 
 function Fact({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
-    <div className="surface-card flex items-start gap-2.5 p-3.5">
+    <div className="flex items-start gap-2.5 bg-card p-4 sm:p-5">
       <span className="mt-0.5 text-primary">{icon}</span>
       <div className="min-w-0">
-        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
-        <dd className="text-sm font-medium">{children}</dd>
+        <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+        <dd className="text-sm font-bold">{children}</dd>
       </div>
     </div>
   );
@@ -352,7 +396,7 @@ function ResultsView({ tournament }: { tournament: TournamentDetail }) {
         />
         {knockout.length > 0 ? (
           <section className="flex flex-col gap-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
               Knockout
             </h3>
             <Bracket matches={knockout} />
@@ -377,7 +421,7 @@ function MatchList({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-display text-lg font-bold sm:text-xl">Matches</h2>
+      <h2 className="text-xl sm:text-2xl">Matches</h2>
       <ul className="surface-card divide-y divide-border">
         {tournament.matches.map((match) => (
           <li key={match.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">

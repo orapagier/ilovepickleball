@@ -30,7 +30,7 @@ export function HoursForm({ hours }: { hours: Row[] }) {
                 type="time"
                 name={`open-${d}`}
                 defaultValue={row ? minutesToTime(row.openMin) : "00:00"}
-                className="rounded border border-input bg-background px-2 py-1"
+                className="field field-sm"
               />
             </label>
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -39,7 +39,7 @@ export function HoursForm({ hours }: { hours: Row[] }) {
                 type="time"
                 name={`close-${d}`}
                 defaultValue={row ? minutesToTime(row.closeMin) : "00:00"}
-                className="rounded border border-input bg-background px-2 py-1"
+                className="field field-sm"
               />
             </label>
           </div>
@@ -53,7 +53,7 @@ export function HoursForm({ hours }: { hours: Row[] }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-fit rounded-full bg-primary px-6 py-2 font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary w-fit"
       >
         {pending ? "Saving…" : "Save hours"}
       </button>

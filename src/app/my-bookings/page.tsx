@@ -14,6 +14,7 @@ import { ActionButton } from "@/components/action-button";
 import { adminCancelBooking } from "@/lib/actions/admin-actions";
 import { resolveGroupAnchorId } from "@/lib/booking-group";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Pending payment",
@@ -79,23 +80,23 @@ export default async function MyBookingsPage() {
   const renderedPaymentAnchors = new Set<string>();
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-bold">{isAdmin ? "All bookings" : "My bookings"}</h1>
-          {isAdmin && (
-            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
-              Admin view — every customer
-            </span>
-          )}
-        </div>
-        <Link
-          href="/book"
-          className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
-        >
-          Book another court
-        </Link>
-      </div>
+    <div className="flex flex-1 flex-col">
+      <PageHeader
+        eyebrow={isAdmin ? "Admin view — every customer" : "Your court time"}
+        title={isAdmin ? "All bookings" : "My bookings"}
+        description={
+          isAdmin
+            ? "Every customer's bookings, newest first. Cancel on their behalf from any row."
+            : "Everything you've reserved, newest first. Pay for anything still pending before its timer runs out."
+        }
+        action={
+          <Link href="/book" className="btn btn-primary">
+            Book another court
+          </Link>
+        }
+      />
+
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-7 sm:py-9">
 
       {bookings.length === 0 ? (
         <p className="surface-card p-8 text-center text-sm text-muted-foreground">
@@ -134,7 +135,7 @@ export default async function MyBookingsPage() {
               <li key={b.id} className="surface-card flex flex-col gap-4 p-5">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="min-w-48 grow">
-                    <p className="font-semibold">
+                    <p className="font-bold">
                       {b.court.name} — {dateLabel}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -158,11 +159,11 @@ export default async function MyBookingsPage() {
 
                   <span
                     className={cn(
-                      "rounded-full px-3 py-1 text-xs font-medium",
+                      "rounded-full px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em]",
                       b.status === "cancelled" || b.status === "expired"
-                        ? "bg-destructive/10 text-destructive"
+                        ? "bg-destructive/12 text-destructive"
                         : b.status === "confirmed"
-                          ? "bg-success/10 text-success"
+                          ? "bg-success/12 text-success"
                           : "bg-secondary text-secondary-foreground",
                     )}
                   >
@@ -182,7 +183,7 @@ export default async function MyBookingsPage() {
                       <ActionButton
                         action={adminCancelBooking.bind(null, b.id)}
                         confirmMessage="Cancel this customer's booking?"
-                        className="shrink-0 rounded-full border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                        className="btn btn-danger btn-sm shrink-0"
                       >
                         Cancel
                       </ActionButton>
@@ -218,7 +219,7 @@ export default async function MyBookingsPage() {
                     )}
 
                     {groupPendingSiblings.length > 0 && (
-                      <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                      <div className="rounded-2xl bg-secondary/60 p-3.5">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           This payment covers
                         </p>
@@ -267,6 +268,7 @@ export default async function MyBookingsPage() {
           })}
         </ul>
       )}
+      </div>
     </div>
   );
 }

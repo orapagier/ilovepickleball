@@ -1,25 +1,42 @@
 @import "tailwindcss";
 
 /*
- * Smash Zone Pickleball Tagum — "Clean Club" design system.
- * Crisp navy + court blue, the same blue as the hero panel, carried through
- * the whole app. The page background is a hair off pure white (a faint blue
- * cast) so white cards read as their own surface instead of disappearing
- * into an identical background. All colors are oklch tokens. Dark mode
- * follows the OS preference (prefers-color-scheme) — this app has no manual
- * theme toggle.
+ * Smash Zone Pickleball Tagum — "Gumamela at dusk".
+ *
+ * The courts at sunset: a blue playing surface holding the last of the light,
+ * a yellow ball on it, and gumamela — the hibiscus that grows over every fence
+ * in Tagum — flowering against the shade. That is the whole palette. Rose is
+ * every action; ball-yellow is spent only on what is happening *right now*;
+ * court blue is the deep ground the glass sits on, and the ink everything is
+ * written in.
+ *
+ * The surface model is three layers, and they are not interchangeable:
+ *   dusk-panel   the deep ground — hero, footer, live tiles
+ *   surface-card opaque vellum — everything that holds content
+ *   glass-panel  real backdrop blur — floating chrome only (bars, sheets)
+ * Blur is expensive on a phone, so it is rationed to the ~8 elements that
+ * actually float over scrolling content. Everything else gets its depth from a
+ * tinted shadow and a white bevel instead.
+ *
+ * All colours are oklch tokens. Dark mode follows the OS; there is no toggle.
  */
 
 @theme inline {
-  --font-display: "Sora Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Fraunces set soft and slightly wonky is the club's voice — a serif with
+     warmth rather than a wedding invitation. Display only, never body copy.
+     Manrope carries the whole interface, including numbers: it has proper
+     tabular figures, so the old separate mono data face is gone. */
+  --font-display: "Fraunces Variable", ui-serif, Georgia, serif;
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* Generous and soft — the geometry of an app you hold, not a form you fill.
+     `sm` stays big enough to read as intentional on a chip. */
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+  --radius-2xl: calc(var(--radius) + 0.5rem);
+  --radius-3xl: calc(var(--radius) + 1rem);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -39,86 +56,129 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-  /* A notch darker than the plain status colors, for large filled areas (the
+  /* A notch darker than the plain status colours, for large filled areas (the
      booking grid's slot buttons) where the base tone reads too bright. */
   --color-destructive-strong: var(--destructive-strong);
   --color-success-strong: var(--success-strong);
   --color-warning-strong: var(--warning-strong);
-  --color-navy: var(--navy);
-  --color-navy-foreground: var(--navy-foreground);
+
+  /* Court blue after sunset: the deep ground for the hero, the live
+     tournament tile and the footer. */
+  --color-dusk: var(--dusk);
+  --color-dusk-foreground: var(--dusk-foreground);
+  /* The ball. Spent only on what is live this minute — a match on court, a
+     tournament being played. That is the entire budget for it. */
+  --color-bloom: var(--bloom);
+  --color-bloom-foreground: var(--bloom-foreground);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-ring-offset-background: var(--background);
+  /* The lit top edge of a glass surface. */
+  --color-hairline: var(--hairline);
 
-  --shadow-card: 0 1px 2px oklch(0.23 0.06 258 / 0.06), 0 12px 32px oklch(0.23 0.06 258 / 0.08);
-  --shadow-lift: 0 18px 48px oklch(0.23 0.06 258 / 0.18);
-  --background-image-court: linear-gradient(
-    155deg,
-    oklch(0.23 0.06 258) 0%,
-    oklch(0.3 0.09 260) 55%,
-    oklch(0.45 0.15 262) 100%
-  );
+  /* Tinted court blue rather than neutral black — a grey shadow under a card
+     on warm blush reads as dirt. Wide and soft, the way light falls through
+     frosted glass. */
+  --shadow-card: 0 1px 2px oklch(0.3 0.07 250 / 0.06), 0 8px 20px -12px oklch(0.3 0.07 250 / 0.2);
+  --shadow-raised: 0 2px 4px oklch(0.3 0.07 250 / 0.07), 0 16px 36px -14px oklch(0.3 0.07 250 / 0.26);
+  --shadow-lift: 0 4px 10px oklch(0.3 0.07 250 / 0.09), 0 32px 64px -20px oklch(0.3 0.07 250 / 0.34);
+  --shadow-glow: 0 6px 18px -6px oklch(0.59 0.19 12 / 0.45);
+
+  /* Floodlit court after dark: cool light pooling on the blue surface, one warm
+     whisper of gumamela in the far corner, and nothing else. Rose and orange
+     used to bloom at both top corners at once, which on a masthead 150px tall
+     read as two washes fighting rather than one place at dusk. Warmth now
+     arrives on the band as the gold hairline and the rose of a button. */
+  --background-image-dusk:
+    radial-gradient(120% 110% at 76% -25%, oklch(0.42 0.085 216) 0%, transparent 62%),
+    radial-gradient(95% 130% at -5% 125%, oklch(0.34 0.095 8) 0%, transparent 60%),
+    linear-gradient(152deg, oklch(0.285 0.068 248) 0%, oklch(0.178 0.045 256) 100%);
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.965 0.014 258);
-  --foreground: oklch(0.23 0.055 258);
+  --radius: 1rem;
+
+  /* Blush white, so a white card reads as its own surface rather than
+     dissolving into the page. Text is court blue, not black. */
+  --background: oklch(0.988 0.008 25);
+  --foreground: oklch(0.26 0.042 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.23 0.055 258);
-  --primary: oklch(0.55 0.185 264);
-  --primary-foreground: oklch(0.99 0.005 258);
-  --secondary: oklch(0.93 0.022 258);
-  --secondary-foreground: oklch(0.28 0.06 258);
-  --muted: oklch(0.95 0.016 258);
-  --muted-foreground: oklch(0.52 0.035 258);
-  --accent: oklch(0.9 0.035 258);
-  --accent-foreground: oklch(0.28 0.06 258);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.99 0.005 258);
-  --success: oklch(0.62 0.15 155);
-  --success-foreground: oklch(0.99 0.005 258);
-  --warning: oklch(0.6 0.17 70);
-  --warning-foreground: oklch(0.99 0.02 90);
-  --destructive-strong: oklch(0.52 0.225 27.325);
-  --success-strong: oklch(0.55 0.14 155);
-  --warning-strong: oklch(0.53 0.155 70);
-  --navy: oklch(0.23 0.06 258);
-  --navy-foreground: oklch(0.98 0.005 258);
-  --border: oklch(0.88 0.02 258);
-  --input: oklch(0.88 0.02 258);
-  --ring: oklch(0.55 0.185 264);
+  --card-foreground: oklch(0.26 0.042 250);
+
+  /* Gumamela — every action on the site. */
+  --primary: oklch(0.585 0.195 12);
+  --primary-foreground: oklch(0.99 0.012 20);
+
+  --secondary: oklch(0.957 0.014 25);
+  --secondary-foreground: oklch(0.33 0.05 250);
+  --muted: oklch(0.963 0.012 25);
+  --muted-foreground: oklch(0.49 0.032 248);
+  --accent: oklch(0.945 0.026 20);
+  --accent-foreground: oklch(0.3 0.05 250);
+
+  /* Pulled orange-red and a shade darker so a destructive control never reads
+     as the rose primary at a glance. */
+  --destructive: oklch(0.525 0.165 34);
+  --destructive-foreground: oklch(0.99 0.01 30);
+  --success: oklch(0.53 0.115 165);
+  --success-foreground: oklch(0.99 0.01 160);
+  --warning: oklch(0.72 0.145 68);
+  --warning-foreground: oklch(0.26 0.06 60);
+  --destructive-strong: oklch(0.48 0.155 34);
+  --success-strong: oklch(0.48 0.105 165);
+  --warning-strong: oklch(0.55 0.14 64);
+
+  --dusk: oklch(0.245 0.062 250);
+  --dusk-foreground: oklch(0.97 0.012 250);
+  --bloom: oklch(0.87 0.155 96);
+  --bloom-foreground: oklch(0.28 0.06 90);
+
+  --border: oklch(0.908 0.013 25);
+  --input: oklch(0.888 0.017 25);
+  --ring: oklch(0.585 0.195 12);
+  --hairline: oklch(1 0 0 / 0.6);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.19 0.045 258);
-    --foreground: oklch(0.97 0.008 258);
-    --card: oklch(0.24 0.05 258);
-    --card-foreground: oklch(0.97 0.008 258);
-    --primary: oklch(0.65 0.17 264);
-    --primary-foreground: oklch(0.17 0.04 258);
-    --secondary: oklch(0.3 0.05 258);
-    --secondary-foreground: oklch(0.97 0.008 258);
-    --muted: oklch(0.3 0.05 258);
-    --muted-foreground: oklch(0.72 0.03 258);
-    --accent: oklch(0.34 0.06 258);
-    --accent-foreground: oklch(0.97 0.008 258);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.98 0.005 258);
-    --success: oklch(0.68 0.14 155);
-    --success-foreground: oklch(0.17 0.04 258);
-    --warning: oklch(0.8 0.15 75);
-    --warning-foreground: oklch(0.2 0.06 70);
-    --destructive-strong: oklch(0.63 0.19 22.216);
-    --success-strong: oklch(0.61 0.14 155);
-    --warning-strong: oklch(0.72 0.15 75);
-    --navy: oklch(0.16 0.04 258);
-    --navy-foreground: oklch(0.98 0.005 258);
+    /* Night stays *inside* the court blue rather than switching to neutral
+       charcoal, so the flower survives the swap. */
+    --background: oklch(0.19 0.032 252);
+    --foreground: oklch(0.965 0.01 250);
+    --card: oklch(0.252 0.038 252);
+    --card-foreground: oklch(0.965 0.01 250);
+
+    --primary: oklch(0.765 0.145 14);
+    --primary-foreground: oklch(0.21 0.06 14);
+
+    --secondary: oklch(0.3 0.042 252);
+    --secondary-foreground: oklch(0.965 0.01 250);
+    --muted: oklch(0.3 0.042 252);
+    --muted-foreground: oklch(0.76 0.025 250);
+    --accent: oklch(0.345 0.05 252);
+    --accent-foreground: oklch(0.965 0.01 250);
+
+    --destructive: oklch(0.7 0.16 36);
+    --destructive-foreground: oklch(0.2 0.06 30);
+    --success: oklch(0.75 0.13 165);
+    --success-foreground: oklch(0.19 0.05 165);
+    --warning: oklch(0.82 0.14 72);
+    --warning-foreground: oklch(0.24 0.06 60);
+    --destructive-strong: oklch(0.62 0.16 36);
+    --success-strong: oklch(0.65 0.12 165);
+    --warning-strong: oklch(0.74 0.14 70);
+
+    --dusk: oklch(0.16 0.042 254);
+    --dusk-foreground: oklch(0.97 0.012 250);
+    --bloom: oklch(0.86 0.15 96);
+    --bloom-foreground: oklch(0.2 0.05 90);
+
     --border: oklch(1 0 0 / 12%);
     --input: oklch(1 0 0 / 16%);
-    --ring: oklch(0.65 0.17 264);
+    --ring: oklch(0.765 0.145 14);
+    --hairline: oklch(1 0 0 / 0.1);
   }
 }
 
@@ -127,42 +187,382 @@
     border-color: var(--color-border);
   }
 
+  html {
+    /* No grey flash on tap — the app's own :active states say what happened. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
+  /* Two gumamela blooms lit behind the whole app. Fixed and behind everything, so
+     frosted surfaces have something to refract and a long page keeps the light
+     in the same place instead of scrolling it away. A pseudo-element rather
+     than `background-attachment: fixed`, which repaints on every scroll frame
+     on mobile Safari. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(45rem 32rem at 88% -8%, color-mix(in oklch, var(--color-primary) 20%, transparent), transparent 70%),
+      radial-gradient(40rem 30rem at -8% 108%, color-mix(in oklch, var(--color-bloom) 22%, transparent), transparent 70%);
+  }
+
+  /* Fraunces has an optical-size axis and two shape axes; setting them once
+     here means a plain `<h2>` is already right and no page has to remember. */
   h1,
   h2,
   h3,
   h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    font-variation-settings: "SOFT" 40, "WONK" 1, "opsz" 40;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  h1 {
+    font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
+    letter-spacing: -0.025em;
+  }
+
+  /* Small headings lose the wonk — the swash forms are a display effect and at
+     16px they just read as a typo. */
+  h3,
+  h4 {
+    font-variation-settings: "SOFT" 30, "WONK" 0, "opsz" 14;
+    letter-spacing: -0.005em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* One visible focus treatment for the whole app. It must not touch
+     border-radius — a pill button that squares off when focused looks broken. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Surfaces
+ * ------------------------------------------------------------------------ */
+
+/** The workhorse. Opaque, so text on it is always legible and 60 of them on a
+ *  page cost nothing; the depth comes from a lit top edge and a plum shadow. */
 @utility surface-card {
   background-color: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), inset 0 1px 0 var(--color-hairline);
 }
 
-@utility court-panel {
-  background-image: var(--background-image-court);
-  color: var(--color-navy-foreground);
+/** A card that is itself the primary object on the page — the booking panel, a
+ *  tournament header. One step more present than `surface-card`. */
+@utility surface-raised {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-raised), inset 0 1px 0 var(--color-hairline);
 }
+
+/** Real frosted glass. Floating chrome only — the header, the tab bar, sheets,
+ *  the sticky booking summary. Anything that scrolling content passes under. */
+@utility glass-panel {
+  background-color: color-mix(in oklch, var(--color-card) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-color: var(--color-border);
+}
+
+/** The deep ground. */
+@utility dusk-panel {
+  background-color: var(--color-dusk);
+  background-image: var(--background-image-dusk);
+  color: var(--color-dusk-foreground);
+}
+
+/** A tile *on* the dusk panel, where a white card would punch a hole.
+ *  Tinted dusk rather than a white veil: at 12% white over a photograph the
+ *  hour buttons inside it were competing with whatever was behind them. It is
+ *  glass you can still see the court through, not a window. */
+@utility glass-on-dusk {
+  background-color: color-mix(in oklch, var(--color-dusk) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid color-mix(in oklch, white 16%, transparent);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-lift), inset 0 1px 0 color-mix(in oklch, white 18%, transparent);
+}
+
+/** Type set directly on a photograph. Lets the scrim over the hero stay light
+ *  enough to see the courts through — the headline carries its own contrast
+ *  instead of the picture being darkened until it isn't a picture. */
+@utility on-photo {
+  text-shadow:
+    0 1px 2px oklch(0.16 0.045 254 / 0.55),
+    0 2px 24px oklch(0.16 0.045 254 / 0.45);
+}
+
+/* ---------------------------------------------------------------------------
+ * Type roles
+ * ------------------------------------------------------------------------ */
+
+/** Short numeric strings — times, peso rates, scores, entry counts. Manrope's
+ *  tabular figures, tightened so a column of them lines up and reads as data
+ *  without changing typeface mid-sentence. */
+@utility data-value {
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/** A large figure — a rate, a court count, a score. Display face, because a
+ *  number is the one piece of running text that is better set as an object. */
+@utility figure-display {
+  font-family: var(--font-display);
+  font-variation-settings: "SOFT" 50, "WONK" 0, "opsz" 100;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/** The section label above a heading: a soft tag, the same shape as every other
+ *  tag in the app, so a label reads as a category rather than as decoration. */
+@utility eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  background-color: color-mix(in oklch, var(--color-primary) 10%, transparent);
+  padding: 0.3125rem 0.6875rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-primary);
+}
+
+/** The same label on the dusk panel, where rose hasn't the contrast. */
+@utility eyebrow-on-dusk {
+  background-color: color-mix(in oklch, white 14%, transparent);
+  color: color-mix(in oklch, var(--color-dusk-foreground) 88%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Controls
+ * ------------------------------------------------------------------------ */
+
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding: 0.6875rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 120ms ease;
+
+  /* Presses down. On a phone this is the only feedback there is between the tap
+     and the next screen. */
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+@utility btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-primary-foreground);
+  box-shadow: var(--shadow-glow);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklch, var(--color-primary) 88%, black);
+  }
+}
+
+@utility btn-outline {
+  border: 1px solid var(--color-border);
+  background-color: var(--color-card);
+  color: var(--color-foreground);
+  box-shadow: var(--shadow-card);
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-accent);
+    border-color: color-mix(in oklch, var(--color-primary) 35%, var(--color-border));
+  }
+}
+
+/** Destructive actions — cancel, reject, delete. Quiet until pointed at, so a
+ *  row of admin controls doesn't read as a row of alarms. */
+@utility btn-danger {
+  border: 1px solid color-mix(in oklch, var(--color-destructive) 30%, transparent);
+  background-color: transparent;
+  color: var(--color-destructive);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklch, var(--color-destructive) 12%, transparent);
+    border-color: color-mix(in oklch, var(--color-destructive) 50%, transparent);
+  }
+}
+
+/** The compact size, for controls inside a table row or a card header.
+ *  Declared after the variants so its padding wins over `btn`'s. */
+@utility btn-sm {
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+/** An outlined control sitting on the dusk panel. */
+@utility btn-on-dusk {
+  border: 1px solid color-mix(in oklch, white 22%, transparent);
+  background-color: color-mix(in oklch, white 12%, transparent);
+  color: var(--color-dusk-foreground);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklch, white 20%, transparent);
+  }
+}
+
+/** Text inputs, selects and textareas. One utility, two sizes — there is no
+ *  reason for a form on this site to invent a fifteenth bordered box. The
+ *  focus ring is a soft rose halo rather than a hard 2px border swap, which
+ *  is what the rest of the interface's depth model does everywhere else. */
+@utility field {
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius-md);
+  background-color: var(--color-card);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+  color: var(--color-foreground);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+
+  &:hover:not(:disabled) {
+    border-color: color-mix(in oklch, var(--color-primary) 40%, var(--color-input));
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 16%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+/** Declared after `field` so its padding wins. */
+@utility field-sm {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.8125rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Utilities
+ * ------------------------------------------------------------------------ */
 
 /* Hides the scrollbar without disabling the scroll — for strips that are
- * swiped on a phone and stepped through with their own arrows on a laptop,
- * where a permanent horizontal scrollbar is just visual noise. */
+ * swiped on a phone and stepped through with their own arrows on a laptop. */
 @utility no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
 
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/** Clears the phone's home indicator under a fixed bottom bar. */
+@utility pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/** Room for the bottom tab bar so the last row of a page isn't sat on. */
+@utility pb-tabbar {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+}
+
+/** For a full-bleed band that should run *under* the tab bar rather than stop
+ *  above it — the homepage footer. Cancels the page's own clearance and pays it
+ *  back as its own padding, so the dusk carries to the bottom edge of the
+ *  screen and the glass bar frosts it. */
+@utility under-tabbar {
+  margin-bottom: calc(-4.5rem - env(safe-area-inset-bottom));
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+
+/** The live pulse on anything being played right now. */
+@utility bloom-pulse {
+  animation: bloom-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes bloom-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/** The page-load entrance, used once per page on the hero and never on a list.
+ *  `--rise-delay` staggers siblings without a second class per position. */
+@utility rise {
+  animation: rise 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }

@@ -39,34 +39,34 @@ export function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="absolute inset-0 bg-dusk/60 backdrop-blur-sm" onClick={onCancel} />
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="surface-card relative w-full max-w-sm p-5 shadow-lift"
+        className="surface-raised rise relative w-full max-w-sm p-5 shadow-lift sm:p-6"
       >
         <div className="flex items-start gap-3">
           <span
             className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-full",
+              "flex size-10 shrink-0 items-center justify-center rounded-full",
               destructive ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary",
             )}
           >
             <TriangleAlert className="size-5" />
           </span>
           <div>
-            <h2 id="confirm-dialog-title" className="font-display text-base font-bold">
+            <h2 id="confirm-dialog-title" className="text-base">
               {title}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="btn btn-outline"
           >
             {cancelLabel}
           </button>
@@ -75,8 +75,10 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             className={cn(
-              "rounded-full px-4 py-2 text-sm font-semibold transition-colors hover:opacity-90",
-              destructive ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
+              "btn",
+              destructive
+                ? "bg-destructive text-destructive-foreground shadow-card hover:brightness-95"
+                : "btn-primary",
             )}
           >
             {confirmLabel}

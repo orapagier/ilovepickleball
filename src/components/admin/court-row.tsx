@@ -22,12 +22,12 @@ export function CourtRow({
         <input
           name="name"
           defaultValue={court.name}
-          className="rounded-lg border border-input bg-background px-2 py-1 text-sm"
+          className="field field-sm"
         />
         <button
           type="submit"
           disabled={pending}
-          className="rounded-full border border-border px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+          className="btn btn-outline btn-sm"
         >
           {pending ? "…" : "Rename"}
         </button>
@@ -45,7 +45,7 @@ export function CourtRow({
       <ActionButton
         action={() => toggleCourt(court.id)}
         confirmMessage={court.active ? "Disable this court? It will stop showing up for booking." : undefined}
-        className="rounded-full border border-border px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+        className="btn btn-outline btn-sm"
       >
         {court.active ? "Disable" : "Enable"}
       </ActionButton>
@@ -58,7 +58,7 @@ export function CourtRow({
           action={() => deleteCourt(court.id)}
           confirmMessage={`Delete ${court.name}? It has no bookings, so nothing is lost — but this can't be undone.`}
           pendingLabel="Deleting…"
-          className="rounded-full border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+          className="btn btn-danger btn-sm"
         >
           Delete
         </ActionButton>
@@ -79,12 +79,12 @@ export function CourtRow({
             name="googleCalendarId"
             defaultValue={court.googleCalendarId}
             placeholder="…@group.calendar.google.com — blank to stop mirroring"
-            className="min-w-64 flex-1 rounded-lg border border-input bg-background px-2 py-1 font-mono text-xs"
+            className="field field-sm min-w-64 flex-1 font-mono text-xs"
           />
           <button
             type="submit"
             disabled={calPending}
-            className="rounded-full border border-border px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+            className="btn btn-outline btn-sm"
           >
             {calPending ? "…" : "Save"}
           </button>

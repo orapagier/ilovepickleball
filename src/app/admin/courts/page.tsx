@@ -12,7 +12,6 @@ export default async function AdminCourtsPage() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
-      <h1 className="text-3xl font-bold">Courts</h1>
       {calendarSyncConfigured && (
         <p className="text-sm text-muted-foreground">
           Bookings are mirrored into Google Calendar. Share each calendar with the service account as{" "}

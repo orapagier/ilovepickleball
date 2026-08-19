@@ -23,16 +23,16 @@ export function RegisterForm({
     <form action={formAction} className="mt-6 flex flex-col gap-4">
       <input type="hidden" name="callbackUrl" value={callbackUrl} />
 
-      <label className="text-sm font-medium text-foreground">
+      <label className="text-sm font-bold text-foreground">
         Gmail
         <input
           value={email}
           disabled
-          className="mt-1 w-full rounded-lg border border-input bg-secondary/50 px-3 py-2 text-sm text-muted-foreground"
+          className="field mt-1 bg-secondary/50 text-muted-foreground w-full"
         />
       </label>
 
-      <label className="text-sm font-medium text-foreground">
+      <label className="text-sm font-bold text-foreground">
         Complete name
         <input
           name="name"
@@ -40,18 +40,18 @@ export function RegisterForm({
           minLength={2}
           defaultValue={defaultName}
           placeholder="Juan Dela Cruz"
-          className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          className="field mt-1 w-full"
         />
       </label>
 
-      <label className="text-sm font-medium text-foreground">
+      <label className="text-sm font-bold text-foreground">
         Mobile number
         <input
           name="phone"
           required
           defaultValue={defaultPhone}
           placeholder="09171234567"
-          className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          className="field mt-1 w-full"
         />
       </label>
 
@@ -66,7 +66,7 @@ export function RegisterForm({
       <button
         type="submit"
         disabled={pending}
-        className="mt-2 w-full rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="btn btn-primary mt-2 w-full py-3"
       >
         {pending ? "Saving…" : "Save and continue"}
       </button>

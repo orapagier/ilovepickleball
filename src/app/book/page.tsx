@@ -3,13 +3,15 @@ import { ShieldCheck } from "lucide-react";
 import { DateTime } from "luxon";
 import { getActiveCourts, getSettings, getBusinessHours, getPriceTiers } from "@/lib/booking-data";
 import { getSessionUser, getProfileCompletion } from "@/lib/auth-helpers";
-import { formatMoney } from "@/lib/format";
+import { splitMoney } from "@/lib/format";
 import { minTierRateCents } from "@/lib/pricing";
-import { closedWindowLabel } from "@/lib/hours-summary";
+import { closedWindowLabel, isSabbathNow } from "@/lib/hours-summary";
 import { MAX_ADVANCE_DAYS } from "@/lib/scheduling";
 import { BookingFlow } from "@/components/booking/booking-flow";
+import { PageHeader } from "@/components/page-header";
 
-export default async function BookPage() {
+export default async function BookPage(props: PageProps<"/book">) {
+  const searchParams = await props.searchParams;
   const [courts, settings, hours, tiers, user] = await Promise.all([
     getActiveCourts(),
     getSettings(),
@@ -20,35 +22,57 @@ export default async function BookPage() {
   const todayISO = DateTime.now().setZone(settings.timezone).toFormat("yyyy-LL-dd");
   const maxISO = DateTime.now().setZone(settings.timezone).plus({ days: MAX_ADVANCE_DAYS }).toFormat("yyyy-LL-dd");
   const needsRegistration = user ? !(await getProfileCompletion(user.id)).complete : false;
+
+  /* The homepage card picks a day and an hour and hands them over here, so the
+     grid opens where the visitor left off with their hour already ticked. Both
+     are validated rather than trusted: an out-of-range date would render a grid
+     the server would refuse to book. */
+  const wantDate = typeof searchParams.date === "string" ? searchParams.date : undefined;
+  const initialDate = wantDate && wantDate >= todayISO && wantDate <= maxISO ? wantDate : undefined;
+  const wantStart = typeof searchParams.start === "string" ? Number(searchParams.start) : NaN;
+  const initialStart = Number.isSafeInteger(wantStart) ? wantStart : undefined;
+  const wantCourt = typeof searchParams.court === "string" ? Number(searchParams.court) : NaN;
+  const initialCourt = courts.some((c) => c.id === wantCourt) ? wantCourt : undefined;
   const closedLabel = closedWindowLabel(hours);
-  const startingRateCents = minTierRateCents(tiers, settings.priceCentsPerHour);
+  const startingRate = splitMoney(minTierRateCents(tiers, settings.priceCentsPerHour), settings.currency);
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-end justify-between gap-3 px-3 pt-6 sm:gap-4 sm:px-4 sm:pt-8">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold sm:text-3xl">Book a court</h1>
-          <p className="mt-1.5 text-xs text-muted-foreground sm:mt-2 sm:text-sm">
-            Starts at {formatMoney(startingRateCents, settings.currency)} /hour · {courts.length} courts ·{" "}
-            {settings.slotDurationMin}-min slots
-          </p>
-        </div>
-        {user && (
-          <Link
-            href="/my-bookings"
-            className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            My bookings
-          </Link>
-        )}
-      </div>
-      <div className="mx-auto flex w-full max-w-6xl items-start gap-2 px-3 pt-3 text-xs text-muted-foreground sm:px-4 sm:pt-4 sm:text-sm">
-        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-        <p>
-          Pay instantly via GCash, BDO, or QRPh/InstaPay — or for bookings of 4 hours or more, call us to arrange
-          payment. Your slot is held for {settings.holdMinutes} minutes.
+      <PageHeader
+        title="Book a court"
+        description={
+          /* The three facts that price the decision, before the grid below asks
+             for one. Set for the dusk band, not the page. */
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="figure-display text-lg text-dusk-foreground">
+              {startingRate.symbol}
+              {startingRate.amount}
+            </span>
+            <span>and up per hour</span>
+            <span aria-hidden className="text-dusk-foreground/30">|</span>
+            <span className="data-value text-dusk-foreground">{courts.length}</span>
+            <span>{courts.length === 1 ? "court" : "courts"}</span>
+            <span aria-hidden className="text-dusk-foreground/30">|</span>
+            <span className="data-value text-dusk-foreground">{settings.slotDurationMin}</span>
+            <span>min slots</span>
+          </span>
+        }
+        action={
+          user && (
+            <Link href="/my-bookings" className="btn btn-on-dusk">
+              My bookings
+            </Link>
+          )
+        }
+      >
+        <p className="flex max-w-xl items-start gap-2.5 rounded-2xl bg-white/10 px-4 py-3.5 text-xs leading-relaxed text-dusk-foreground/85 sm:text-sm">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Pay instantly via GCash, BDO or QRPh — or for bookings of 4 hours or more, call us to arrange
+            payment. Your slot is held for {settings.holdMinutes} minutes.
+          </span>
         </p>
-      </div>
+      </PageHeader>
       <BookingFlow
         courts={courts}
         todayISO={todayISO}
@@ -62,6 +86,10 @@ export default async function BookPage() {
         signedIn={!!user}
         needsRegistration={needsRegistration}
         closedLabel={closedLabel}
+        inSabbath={isSabbathNow(settings.timezone)}
+        initialDate={initialDate}
+        initialStart={initialStart}
+        initialCourt={initialCourt}
       />
     </div>
   );
