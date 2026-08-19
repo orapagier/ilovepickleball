@@ -15,3 +15,9 @@ WHERE "id" = 1;
 UPDATE "User"
 SET "role" = 'customer'
 WHERE "role" = 'admin' AND lower("email") <> 'orapajelmar@gmail.com';
+
+-- The courts were named after the old brand too ("Smash Zone Court 1"), and
+-- the name is what the booking grid, the hero card and every Google Calendar
+-- event show. Strip the prefix rather than renumber: the trailing part is what
+-- staff and members already call them.
+UPDATE "Court" SET "name" = btrim(replace("name", 'Smash Zone', '')) WHERE "name" LIKE 'Smash Zone%';
