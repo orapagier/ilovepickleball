@@ -6,11 +6,18 @@ import "@fontsource-variable/fraunces/full.css";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
+import { getSettings } from "@/lib/booking-data";
 
-export const metadata: Metadata = {
-  title: "Smash Zone Pickleball Tagum — Book a Court",
-  description: "Reserve a pickleball court online at Smash Zone Pickleball Tagum.",
-};
+/* Titled from the same setting the header and the hero read, so renaming the
+   club in /admin/settings renames it everywhere. Free of extra queries:
+   getSettings is request-cached and the header already asks for it. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { businessName } = await getSettings();
+  return {
+    title: `${businessName} — Book a Court`,
+    description: `Reserve a pickleball court online at ${businessName}.`,
+  };
+}
 
 /* Installed to the home screen this behaves like an app, so the status bar
    takes the page's own colour and the layout runs into the safe areas. */

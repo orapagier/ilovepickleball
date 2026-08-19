@@ -1,8 +1,8 @@
-# Smash Zone — visual design
+# I Love Pickleball — visual design
 
 ## Subject
 
-Smash Zone Pickleball Tagum: an hourly court-booking site for players in Tagum
+I Love Pickleball: an hourly court-booking site for players in Tagum
 City, Davao del Norte, plus the club tournaments run on those same courts. The
 site has one job — get a player from "I want to play tonight" to a held, paid
 slot. Everything else is in service of that.

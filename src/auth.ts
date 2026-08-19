@@ -24,10 +24,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user, account }) {
       // `user` is only populated on the initial sign-in, which is exactly
-      // when we want to (re-)assign the role from the ADMIN_EMAILS allowlist.
+      // when we want to sync the row against the ADMIN_EMAILS allowlist.
       if (user?.email) {
         const email = user.email;
-        const role: AppRole = isAdminEmail(email) ? "admin" : "customer";
+        // ADMIN_EMAILS bootstraps the first admin; after that admins are made
+        // in /admin/users and live only in the database. So the allowlist may
+        // promote, never demote — re-deriving the role here would strip access
+        // from every admin granted through the UI the next time they sign in.
+        const promote: AppRole | null = isAdminEmail(email) ? "admin" : null;
         // Auth.js deliberately hands this callback a *freshly generated UUID*
         // as `user.id` on every sign-in — Google's stable identifier arrives as
         // `account.providerAccountId`. Matching the row on `user.id` therefore
@@ -44,13 +48,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // The Google avatar is a starting value on `create`, nothing more.
         const dbUser = await prisma.user.upsert({
           where: { email },
-          update: { googleSub, role },
+          update: { googleSub, ...(promote ? { role: promote } : {}) },
           create: {
             googleSub,
             email,
             name: user.name ?? "",
             image: user.image ?? "",
-            role,
+            role: promote ?? "customer",
           },
         });
         token.uid = dbUser.id;

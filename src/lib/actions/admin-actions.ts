@@ -154,6 +154,24 @@ export async function adminDeleteUser(userId: string): Promise<ActionState> {
   redirect("/admin/users");
 }
 
+/** Grants or revokes admin access. ADMIN_EMAILS only bootstraps the first
+ *  admin — every one after that is made here, which is why the allowlist is
+ *  promote-only in src/auth.ts. The role is read into the session at sign-in,
+ *  so a change lands the next time they sign in. */
+export async function adminSetRole(userId: string, role: "admin" | "customer"): Promise<ActionState> {
+  const admin = await requireAdminOrThrow();
+  // Same reason as adminDeleteUser: nothing else stops an admin locking
+  // themselves out, possibly as the last admin account.
+  if (admin.id === userId) return { error: "You cannot change your own access." };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) return { error: "User not found." };
+
+  await prisma.user.update({ where: { id: userId }, data: { role } });
+  revalidatePath("/admin/users");
+  revalidatePath(`/admin/users/${userId}`);
+  return { ok: true };
+}
+
 /** Moves a booking to a different court/time/duration, reusing the same open-hours,
  *  blackout, lead-time and double-booking checks the customer-facing flow uses. */
 export async function rescheduleBooking(_prev: ActionState, formData: FormData): Promise<ActionState> {

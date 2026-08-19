@@ -11,3 +11,13 @@ export function deleteUserMessage(label: string, isAdmin: boolean, bookings: num
     "though signing in again with the same Google account creates a new customer record."
   );
 }
+
+/** Confirm-dialog wording for granting or revoking admin access, shared by the
+ *  list and detail views. The sign-in note matters: the role rides in the
+ *  session JWT, so a promotion a member is looking at right now doesn't reach
+ *  them until they sign in again. */
+export function roleChangeMessage(label: string, isAdmin: boolean): string {
+  return isAdmin
+    ? `Remove admin access from ${label}? Their account, bookings and tournament entries stay as they are.`
+    : `Give ${label} full admin access — bookings, users, pricing, courts and settings? It takes effect the next time they sign in.`;
+}

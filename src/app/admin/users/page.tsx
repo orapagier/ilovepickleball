@@ -5,8 +5,8 @@ import { getSettings } from "@/lib/booking-data";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/action-button";
-import { adminDeleteUser } from "@/lib/actions/admin-actions";
-import { deleteUserMessage } from "@/lib/users";
+import { adminDeleteUser, adminSetRole } from "@/lib/actions/admin-actions";
+import { deleteUserMessage, roleChangeMessage } from "@/lib/users";
 
 export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
   const searchParams = await props.searchParams;
@@ -41,6 +41,9 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-end gap-3">
+        <p className="mr-auto text-sm text-muted-foreground">
+          Anyone who has signed in once can be made an admin from this list.
+        </p>
         <p className="text-sm text-muted-foreground">
           {users.length} {users.length === 1 ? "user" : "users"}
           {q ? " matching" : ""}
@@ -122,15 +125,25 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
               >
                 {u._count.bookings} {u._count.bookings === 1 ? "booking" : "bookings"}
               </span>
-              {/* No self-delete: the action refuses it, so don't offer it. */}
+              {/* No acting on your own row: both actions refuse it, so don't
+                  offer either. */}
               {admin?.id !== u.id && (
-                <ActionButton
-                  action={adminDeleteUser.bind(null, u.id)}
-                  confirmMessage={deleteUserMessage(u.name || u.email, u.role === "admin", u._count.bookings)}
-                  className="btn btn-danger btn-sm shrink-0"
-                >
-                  Delete
-                </ActionButton>
+                <div className="flex shrink-0 items-start gap-2">
+                  <ActionButton
+                    action={adminSetRole.bind(null, u.id, u.role === "admin" ? "customer" : "admin")}
+                    confirmMessage={roleChangeMessage(u.name || u.email, u.role === "admin")}
+                    className="btn btn-outline btn-sm"
+                  >
+                    {u.role === "admin" ? "Remove admin" : "Make admin"}
+                  </ActionButton>
+                  <ActionButton
+                    action={adminDeleteUser.bind(null, u.id)}
+                    confirmMessage={deleteUserMessage(u.name || u.email, u.role === "admin", u._count.bookings)}
+                    className="btn btn-danger btn-sm"
+                  >
+                    Delete
+                  </ActionButton>
+                </div>
               )}
             </li>
           ))}

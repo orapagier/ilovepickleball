@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   return agentJson({
-    name: "Smash Zone booking — agent read API",
+    name: "I Love Pickleball booking — agent read API",
     description:
       "Read-only access to courts, availability, bookings and daily operations. " +
       "All times are returned as UTC ISO strings plus a business-local label. Money is in cents.",

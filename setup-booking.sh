@@ -50,9 +50,9 @@
 #    --no-node  --no-gh  --no-git  --no-install  --no-env
 #
 #  INSTALL ON A FRESH MACHINE (one line, nothing pre-installed)
-#      curl -fsSL https://raw.githubusercontent.com/orapagier/smash-zone-booking/master/setup-booking.sh | bash
+#      curl -fsSL https://raw.githubusercontent.com/orapagier/ilovepickleball/main/setup-booking.sh | bash
 #
-#    Note the branch is `master`, not `main`.
+#    The default branch is `main`.
 #    To pass flags through the pipe, use `bash -s --`:
 #      curl -fsSL .../setup-booking.sh | bash -s -- --with-vercel --with-pgclient
 #
@@ -105,7 +105,7 @@ set_env_var() {
 # instead of printing the instruction the user actually needs.
 SELF_SRC="${BASH_SOURCE[0]:-}"
 SELF_NAME="setup-booking.sh"
-SELF_URL="https://raw.githubusercontent.com/orapagier/smash-zone-booking/master/setup-booking.sh"
+SELF_URL="https://raw.githubusercontent.com/orapagier/ilovepickleball/main/setup-booking.sh"
 if [ -n "$SELF_SRC" ]; then
   ROOT="$(cd "$(dirname "$SELF_SRC")" && pwd)"
 else
@@ -145,7 +145,7 @@ else
   INTERACTIVE=0
 fi
 
-REPO_URL="${BOOKING_REPO_URL:-https://github.com/orapagier/smash-zone-booking}"
+REPO_URL="${BOOKING_REPO_URL:-https://github.com/orapagier/ilovepickleball}"
 CLONE_DIR="${BOOKING_DIR:-$HOME/dev/booking}"
 
 show_help() {

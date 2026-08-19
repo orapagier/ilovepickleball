@@ -1,4 +1,4 @@
-// Smash Zone Pickleball Tagum — booking system schema.
+// I Love Pickleball — booking system schema.
 
 generator client {
   provider = "prisma-client"
@@ -140,7 +140,7 @@ model Court {
 /// Singleton row (id is always 1) holding every admin-editable business setting.
 model Setting {
   id                     Int    @id @default(1)
-  businessName           String @default("Smash Zone Pickleball Tagum")
+  businessName           String @default("I Love Pickleball")
   contactPerson          String @default("")
   contactPhone           String @default("")
   contactEmail           String @default("")
