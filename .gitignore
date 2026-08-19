@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template. It holds no secrets — only the variable names and
+# what each is for — so a fresh clone can see what needs filling in.
+# The negation must come after BOTH .env* rules in this file to take effect.
 
 # vercel
 .vercel
@@ -55,3 +58,4 @@ skills-lock.json
 
 .vercel
 .env*
+!.env.example
