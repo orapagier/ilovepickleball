@@ -30,13 +30,9 @@ export async function SiteHeader() {
             href="/"
             className="flex min-w-0 items-center gap-2.5 rounded-full font-display text-[0.95rem] font-semibold tracking-tight sm:text-base"
           >
-            <Image
-              src="/logo.png"
-              alt=""
-              width={36}
-              height={36}
-              className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border"
-            />
+            {/* The mark is already a circle with its holes cut out, so it needs
+                no crop and no ring — those were for a photographic logo. */}
+            <Image src="/logo.svg" alt="" width={36} height={36} className="size-9 shrink-0" />
             <span className="truncate">{settings.businessName}</span>
           </Link>
 

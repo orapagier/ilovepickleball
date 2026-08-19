@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pickleball">
+  <!-- A pickleball: one perforated ball, nothing else. The holes are cut out
+       rather than painted, so the mark sits on the header glass, the dusk
+       panel or a home-screen tile without carrying a background of its own.
+       Rose is the light-theme primary, hard-coded: it reads on both themes,
+       and a CSS token cannot reach a file loaded as an image. -->
+  <mask id="holes">
+    <circle cx="32" cy="32" r="30" fill="#fff" />
+    <g fill="#000">
+      <circle cx="32.00" cy="32.00" r="4.4" />
+      <circle cx="32.00" cy="18.80" r="4.4" />
+      <circle cx="43.43" cy="25.40" r="4.4" />
+      <circle cx="43.43" cy="38.60" r="4.4" />
+      <circle cx="32.00" cy="45.20" r="4.4" />
+      <circle cx="20.57" cy="38.60" r="4.4" />
+      <circle cx="20.57" cy="25.40" r="4.4" />
+      <circle cx="43.60" cy="11.91" r="3.4" />
+      <circle cx="55.20" cy="32.00" r="3.4" />
+      <circle cx="43.60" cy="52.09" r="3.4" />
+      <circle cx="20.40" cy="52.09" r="3.4" />
+      <circle cx="8.80" cy="32.00" r="3.4" />
+      <circle cx="20.40" cy="11.91" r="3.4" />
+    </g>
+  </mask>
+  <circle cx="32" cy="32" r="30" fill="#d5365c" mask="url(#holes)" />
+</svg>

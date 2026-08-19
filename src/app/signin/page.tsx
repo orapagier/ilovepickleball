@@ -15,13 +15,7 @@ export default async function SignInPage(props: PageProps<"/signin">) {
   return (
     <div className="dusk-panel grid flex-1 place-items-center px-4 py-14">
       <div className="surface-raised rise w-full max-w-sm p-7 text-center sm:p-8">
-        <Image
-          src="/logo.png"
-          alt=""
-          width={64}
-          height={64}
-          className="mx-auto size-16 rounded-full object-cover ring-1 ring-border"
-        />
+        <Image src="/logo.svg" alt="" width={64} height={64} className="mx-auto size-16" />
         <h1 className="mt-5 text-2xl">{settings.businessName}</h1>
         <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
           Sign in to reserve a court, pay from your phone and follow the tournaments you&rsquo;ve entered.
