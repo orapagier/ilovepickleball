@@ -532,13 +532,23 @@ if [ "$DO_ENV" = 1 ]; then
         break
       fi
       info "testing the connection..."
-      if ( cd "$ROOT" && npx prisma migrate status >/dev/null 2>&1 ); then
-        log "connected — database reachable and migrations up to date"
-      elif ( cd "$ROOT" && npx prisma migrate status 2>&1 | grep -q "not yet been applied\|pending" ); then
-        warn "connected, but migrations are pending — run: npx prisma migrate deploy"
-      else
-        warn "could not reach the database with that URL. Check it, or edit .env.local."
-      fi
+      # Capture once and branch on what Prisma actually said. The previous
+      # version ran the command twice and treated ANY non-zero exit as "could
+      # not reach the database" — which misdiagnosed every non-network failure
+      # (a bad datasource config reads identically to an unroutable host) and
+      # sent you looking at the URL you had just correctly pasted.
+      CONN_OUT="$(cd "$ROOT" && npx prisma migrate status 2>&1 || true)"
+      case "$CONN_OUT" in
+        *"Database schema is up to date"*)
+          log "connected — database reachable and migrations up to date" ;;
+        *"not yet been applied"*|*"pending"*)
+          warn "connected, but migrations are pending — run: npx prisma migrate deploy" ;;
+        *)
+          warn "could not verify the database. Prisma reported:"
+          printf '%s\n' "$CONN_OUT" | grep -v '^$' | tail -4 | sed 's/^/        /' >&2
+          warn "the URL is saved in .env.local either way — fix and re-check with:"
+          warn "  cd $ROOT && npx prisma migrate status" ;;
+      esac
       break
     done
   else
@@ -646,7 +656,10 @@ if [ -f "$ROOT/.env.local" ]; then
         *"not yet been applied"*|*"pending"*)
           miss "migrations" "pending"
           TODO+=("cd $ROOT && npx prisma migrate deploy   # apply pending migrations") ;;
-        *) miss "migrations" "could not check (is DATABASE_URL reachable?)" ;;
+        # Must add a TODO: without one the run ends on "your dev environment is
+        # ready" while the database is demonstrably not queryable.
+        *) miss "migrations" "could not check"
+           TODO+=("Database not queryable: cd $ROOT && npx prisma migrate status   # shows the real error") ;;
       esac
     fi
   fi
