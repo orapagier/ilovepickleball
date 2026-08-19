@@ -99,7 +99,7 @@ set_env_var() {
 # npm cache root-owned, so the normal user could neither push nor build.
 if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
   echo "Do not run this with sudo. Run it as $SUDO_USER:" >&2
-  echo "    bash ${BASH_SOURCE[0]##*/}" >&2
+  echo "    bash $SELF_NAME" >&2
   exit 1
 fi
 if [ "$(id -u)" -eq 0 ]; then
@@ -128,9 +128,31 @@ else
   INTERACTIVE=0
 fi
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Piped execution (`curl … | bash`) has NO source file, so BASH_SOURCE is unset
+# and `set -u` would abort here before a single flag is parsed. Everything that
+# wants the script's own path has to tolerate that.
+SELF_SRC="${BASH_SOURCE[0]:-}"
+SELF_NAME="setup-booking.sh"
+SELF_URL="https://raw.githubusercontent.com/orapagier/smash-zone-booking/master/setup-booking.sh"
+if [ -n "$SELF_SRC" ]; then
+  ROOT="$(cd "$(dirname "$SELF_SRC")" && pwd)"
+else
+  ROOT="$PWD"   # piped: no script dir, so judge the repo from the working dir
+fi
 REPO_URL="${BOOKING_REPO_URL:-https://github.com/orapagier/smash-zone-booking}"
 CLONE_DIR="${BOOKING_DIR:-$HOME/dev/booking}"
+
+show_help() {
+  # Under a pipe there is no local file to read the header out of, so pull the
+  # canonical copy rather than printing nothing useful.
+  if [ -n "$SELF_SRC" ] && [ -r "$SELF_SRC" ]; then
+    sed -n '2,/^# =\{20,\}$/p' "$SELF_SRC" | sed 's/^# \{0,1\}//'
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$SELF_URL" | sed -n '2,/^# =\{20,\}$/p' | sed 's/^# \{0,1\}//'
+  else
+    echo "Full options: $SELF_URL"
+  fi
+}
 
 DO_NODE=1; DO_GH=1; DO_GIT=1; DO_INSTALL=1; DO_ENV=1
 W_VERCEL=0; W_PGCLIENT=0; VERIFY=0
@@ -147,7 +169,7 @@ while [ $# -gt 0 ]; do
     --verify)       VERIFY=1 ;;
     --all)          W_VERCEL=1; W_PGCLIENT=1; VERIFY=1 ;;
     --dir)          [ $# -ge 2 ] || err "--dir needs a PATH"; CLONE_DIR="$2"; shift ;;
-    --help|-h)      sed -n '2,/^# =\{20,\}$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h)      show_help; exit 0 ;;
     *)              err "unknown flag: $1 (try --help)" ;;
   esac
   shift
@@ -278,9 +300,9 @@ esac
 
 # The canonical copy lives in the repo; a copy in ~/ is what bootstraps a
 # machine with no checkout yet. Flag drift rather than letting the ~/ one rot.
-SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+SELF_PATH="${SELF_SRC:+$(cd "$(dirname "$SELF_SRC")" && pwd)/$(basename "$SELF_SRC")}"
 REPO_COPY="$ROOT/setup-booking.sh"
-if [ "$SELF_PATH" != "$REPO_COPY" ] && [ -f "$REPO_COPY" ] && ! cmp -s "$SELF_PATH" "$REPO_COPY"; then
+if [ -n "$SELF_PATH" ] && [ "$SELF_PATH" != "$REPO_COPY" ] && [ -f "$REPO_COPY" ] && ! cmp -s "$SELF_PATH" "$REPO_COPY"; then
   warn "the repo's setup-booking.sh differs from the copy you ran"
   warn "  running: $SELF_PATH"
   warn "  repo:    $REPO_COPY"
