@@ -7,9 +7,47 @@
 #
 #  SUPPORTED
 #    Any Debian derivative (Debian, Ubuntu, Mint, Pop!_OS, ...) on x86_64 or
-#    arm64, under WSL2 or on bare metal / a VM, desktop or headless.
+#    arm64, under WSL2, on bare metal / a VM, or inside a container (rootless
+#    Podman, distrobox/toolbox, Docker) — desktop or headless.
 #    Run it as your NORMAL user — not with sudo; it escalates per command so
 #    your SSH key, npm cache and the checkout stay owned by you.
+#
+#  WHERE THIS RUNS  (the HOST distro is irrelevant — only what is inside counts)
+#    bare metal / VM   Ubuntu, Debian, Mint, Pop!_OS, ... nothing special.
+#    WSL2              detected from /proc/version, $WSL_DISTRO_NAME or /run/WSL
+#                      — a custom-built WSL2 kernel need not carry the
+#                      "microsoft" string — and given an xdg-open shim so
+#                      `gh auth login` can reach the Windows browser. WSL is
+#                      tested BEFORE the container check, because WSL2 runs
+#                      systemd as PID 1 and some versions export $container,
+#                      which would otherwise misread it as a container and
+#                      suppress the very shim it needs.
+#    container         rootless Podman, distrobox/toolbox, Docker, nspawn.
+#                      Detected, named in Preflight, nothing extra to pass.
+#    as root           fine — a fresh Debian or a Docker image frequently has
+#                      no sudo at all. Escalation stays per-command via $SUDO.
+#
+#    Three things genuinely vary by environment. Each is decided on a fact
+#    checked at run time, never on an assumption about the machine:
+#      * privileges are probed with `sudo -n true`, NOT `sudo -v`. -v REFRESHES
+#        the credential timestamp, and sudo refuses to do that with no TTY
+#        ("a terminal is required to authenticate") even for a user who needs
+#        no password. distrobox images are exactly that case — NOPASSWD sits
+#        alongside the distro's stock `(ALL:ALL) ALL`, and -v validates against
+#        the strict rule — so the old probe aborted the run on a box where every
+#        apt call would have gone through. Where a password IS genuinely needed
+#        and a terminal exists, it is still prompted for as before.
+#      * CPU and RAM come from the cgroup wherever one caps them, because nproc
+#        and /proc/meminfo report the HOST's totals from inside a container.
+#      * $HOME is checked against the mount table — is it on a different
+#        filesystem from / ? — rather than inferred from the container flavour,
+#        because `docker run -v $HOME:$HOME` shares it just as distrobox does.
+#        Where it IS shared, the SSH key and git identity set up below are the
+#        HOST's, reused by every sibling container. Normally what you want, and
+#        worth knowing before you wonder where an existing key came from.
+#    What persists in a container: everything under $HOME (the checkout, your
+#    SSH key, the npm cache). apt packages live in the container's own layer —
+#    they survive `distrobox enter`, not `distrobox rm`. Re-running fixes that.
 #
 #  WHAT THIS PROJECT ACTUALLY NEEDS (verified against the repo, not assumed)
 #    Node.js 22 LTS
@@ -181,19 +219,111 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+
+# ── Environment detection ────────────────────────────────────────────────────
+# Nothing below changes WHAT gets installed. It only records where we are, so
+# three environment-specific decisions later on are made on fact rather than on
+# an assumption about the machine: how to probe sudo (Preflight), whether to
+# trust nproc//proc/meminfo (just below), and whether $HOME belongs to someone
+# else (the --with-lld warning).
+
+# WSL first, and it wins over the container check. WSL2 runs systemd as PID 1
+# and, depending on the systemd version, exports $container — so a WSL box can
+# otherwise be misread as a container, which would suppress the xdg-open shim
+# it genuinely needs in "Base packages". /proc/version is the usual marker; a
+# custom-built WSL2 kernel need not carry the "microsoft" string, so the
+# interop markers are checked as well.
+IS_WSL=0
+if grep -qi microsoft /proc/version 2>/dev/null \
+   || [ -n "${WSL_DISTRO_NAME:-}" ] || [ -d /run/WSL ]; then
+  IS_WSL=1
+fi
+
+# Container: rootless Podman, distrobox/toolbox and Docker are all supported
+# targets. systemd-detect-virt is deliberately not used — it reports "docker"
+# for rootless Podman and is absent from minimal images anyway.
+CONTAINER=""; CONTAINER_KIND=""
+if [ "$IS_WSL" = 0 ]; then
+  if [ -n "${container:-}" ]; then
+    CONTAINER="$container"
+  elif [ -f /run/.containerenv ]; then
+    CONTAINER="podman"
+  elif [ -f /.dockerenv ]; then
+    CONTAINER="docker"
+  fi
+  if [ -f /run/.toolboxenv ] || [ -n "${DISTROBOX_ENTER_PATH:-}" ] \
+     || [ -f /etc/profile.d/distrobox_profile.sh ]; then
+    CONTAINER_KIND="distrobox/toolbox"
+    if [ -z "$CONTAINER" ]; then CONTAINER="podman"; fi
+  fi
+fi
+
+# Does $HOME belong to the host? distrobox/toolbox bind-mount it, which puts it
+# on a different filesystem from the container's own overlay root; a plain
+# `docker run` has both on the same one. Asked as a question about the mounts
+# rather than inferred from the container flavour, because either kind can be
+# started with -v $HOME:$HOME. Outside a container the question is meaningless.
+HOME_SHARED=0
+if [ -n "$CONTAINER" ] \
+   && [ "$(stat -c %d / 2>/dev/null || echo a)" != "$(stat -c %d "$HOME" 2>/dev/null || echo b)" ]; then
+  HOME_SHARED=1
+fi
+
 # ── Preflight ────────────────────────────────────────────────────────────────
 step "Preflight"
 [ "$(uname -s)" = "Linux" ] || err "This targets Linux/WSL (Debian-based)."
 command -v apt-get >/dev/null 2>&1 || err "apt-get not found — Debian-based distros only."
-log "host: $(nproc) cores, $(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo) GiB RAM, $(uname -m)"
+# nproc and /proc/meminfo report the HOST's totals inside a container, so use
+# the cgroup limit when one is set — otherwise this line is simply misleading.
+CORES="$(nproc)"
+MEM_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+if [ -r /sys/fs/cgroup/memory.max ]; then
+  _lim="$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)"
+  case "$_lim" in ''|*[!0-9]*) ;; *) MEM_KB=$(( _lim / 1024 )) ;; esac
+fi
+if [ -r /sys/fs/cgroup/cpu.max ]; then
+  _q=max; _p=100000
+  read -r _q _p < /sys/fs/cgroup/cpu.max || true
+  case "${_q:-max}" in ''|*[!0-9]*) _q=max ;; esac
+  case "${_p:-0}"   in ''|*[!0-9]*) _p=0   ;; esac
+  if [ "$_q" != "max" ] && [ "$_p" -gt 0 ]; then
+    _cc=$(( (_q + _p - 1) / _p ))
+    if [ "$_cc" -ge 1 ] && [ "$_cc" -lt "$CORES" ]; then CORES="$_cc"; fi
+  fi
+fi
+_MEM_GB="$(awk -v k="$MEM_KB" 'BEGIN { printf "%.1f", k/1048576 }')"
+if [ -n "$CONTAINER" ]; then
+  log "environment: ${CONTAINER}${CONTAINER_KIND:+ ($CONTAINER_KIND)} container, ${CORES} cores, ${_MEM_GB} GiB RAM, $(uname -m)"
+else
+  log "host: ${CORES} cores, ${_MEM_GB} GiB RAM, $(uname -m)"
+fi
 if [ -n "$SUDO" ]; then
-  sudo -v || err "sudo access is required to install packages."
-  # Track the PID rather than using a %1 job spec: job control is off in a
-  # non-interactive shell, so %1 is not reliable here.
-  ( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) 2>/dev/null &
-  SUDO_KEEPALIVE=$!
-  trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
-  log "privileges: sudo as $(id -un)"
+  # `sudo -v` is the obvious probe and it is the wrong one inside a container.
+  # -v REFRESHES the credential timestamp, and sudo refuses to do that without a
+  # TTY — "sudo: a terminal is required to authenticate" — even for a user who
+  # needs no password at all. distrobox/toolbox images are exactly that case:
+  # they add a NOPASSWD rule *alongside* the distro's stock `(ALL:ALL) ALL`, and
+  # -v validates against the strict rule, so the script died here in Preflight
+  # on a box where every single apt call would have gone through fine.
+  # `sudo -n true` asks the question that actually matters — can this script
+  # escalate without a password — and it is equally correct on bare metal.
+  if sudo -n true 2>/dev/null; then
+    log "privileges: passwordless sudo as $(id -un)"
+    # No keepalive here: there is no timestamp to keep warm.
+  elif [ "$INTERACTIVE" = 1 ]; then
+    # Plain `sudo -v`, no stdin redirect: sudo opens the terminal itself for
+    # the prompt, so it works under `curl … | bash` as-is, and a redirect from
+    # /dev/tty would only add a way to fail if that handle went away.
+    sudo -v || err "sudo access is required to install packages."
+    # Keep sudo warm: later steps can outlast the default 15-min timeout.
+    ( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) 2>/dev/null &
+    SUDO_KEEPALIVE=$!
+    trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
+    log "privileges: sudo as $(id -un)"
+  else
+    err "sudo needs a password here and there is no terminal to type it at.
+     Run this attached to a TTY, or as root, or give $(id -un) a NOPASSWD rule."
+  fi
 else
   log "privileges: running as root"
 fi
@@ -215,7 +345,6 @@ apt_update
 apt_install curl ca-certificates gnupg git openssh-client openssl
 log "curl, git, openssh-client, openssl"
 
-IS_WSL=0; grep -qi microsoft /proc/version 2>/dev/null && IS_WSL=1
 if [ "$IS_WSL" = 1 ] && ! command -v xdg-open >/dev/null 2>&1 && ! command -v wslview >/dev/null 2>&1; then
   # wslu is not packaged for every Ubuntu release, so a shim over WSL interop
   # is more reliable than the package. Lets `gh auth login` open a browser.
