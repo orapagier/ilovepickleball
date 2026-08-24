@@ -84,6 +84,20 @@
 #                     exact trap .github/workflows/backup.yml documents.
 #    --verify         run `npx next build` at the end to prove the app compiles.
 #
+#  NOTHING HERE PROMPTS  (a re-run finishes on its own)
+#    Every answerable question now has a default instead of a prompt:
+#      git identity   what git already has > GIT_NAME= / GIT_EMAIL= > your
+#                     public GitHub email > DEFAULT_GIT_NAME / DEFAULT_GIT_EMAIL,
+#                     set near the top of this file.
+#      npm ci         retried once against the warmed cache before giving up.
+#
+#    TWO things still need a human, and neither can be scripted:
+#      * `gh auth login` — interactive OAuth in a browser
+#      * DATABASE_URL, and ONLY when .env.local does not already carry one.
+#        It is a Neon connection string with a password in it; nothing on the
+#        machine can derive it. `--with-vercel` plus `vercel env pull` is the
+#        closest thing to automating it.
+#
 #  SKIP FLAGS
 #    --no-node  --no-gh  --no-git  --no-install  --no-env
 #
@@ -185,6 +199,15 @@ fi
 
 REPO_URL="${BOOKING_REPO_URL:-https://github.com/orapagier/ilovepickleball}"
 CLONE_DIR="${BOOKING_DIR:-$HOME/dev/booking}"
+
+# Fallbacks, used only when nothing better is available. They exist so that an
+# unattended re-run never stops to ask a question: the auto-backup Stop hook
+# commits with no TTY, and `curl … | bash` in a fresh container has nobody to
+# type at. Anything git already has configured wins over these, and GIT_NAME= /
+# GIT_EMAIL= override them for a single run. Change these two lines if someone
+# else works on this checkout.
+DEFAULT_GIT_NAME="${DEFAULT_GIT_NAME:-orapagier}"
+DEFAULT_GIT_EMAIL="${DEFAULT_GIT_EMAIL:-orapajelmar@gmail.com}"
 
 show_help() {
   # Under a pipe there is no local file to read the header out of, so pull the
@@ -455,23 +478,32 @@ if [ "$DO_GIT" = 1 ]; then
   # out of the command substitution to the ASSIGNMENT, which `set -e` then turns
   # into a silent exit mid-script.
   GIT_NAME="${GIT_NAME:-$(git -C "$ROOT" config --get remote.origin.url 2>/dev/null | sed -nE 's#.*github\.com[:/]([^/]+)/.*#\1#p' || true)}"
+  GIT_NAME="${GIT_NAME:-$DEFAULT_GIT_NAME}"
   GIT_EMAIL="${GIT_EMAIL:-}"
 
-  git config --get user.name >/dev/null 2>&1 && log "user.name  $(git config --get user.name)" || {
-    [ -n "$GIT_NAME" ] && { git config --global user.name "$GIT_NAME"; log "user.name  set to '$GIT_NAME'"; } \
-                       || warn "user.name unset — git config --global user.name 'Your Name'"; }
+  if git config --get user.name >/dev/null 2>&1; then
+    log "user.name  $(git config --get user.name)"
+  else
+    git config --global user.name "$GIT_NAME"; log "user.name  set to '$GIT_NAME'"
+  fi
 
+  # No prompt: an unattended re-run must not stall waiting for an answer, and an
+  # unset user.email makes every `git commit` fail. Precedence: what git already
+  # has > GIT_EMAIL= > your public GitHub email > DEFAULT_GIT_EMAIL.
+  EMAIL_SRC=""
   if [ -z "$GIT_EMAIL" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     GIT_EMAIL="$(gh api user --jq '.email // empty' 2>/dev/null || true)"
+    [ -n "$GIT_EMAIL" ] && EMAIL_SRC=" (your public GitHub email)"
+  fi
+  if [ -z "$GIT_EMAIL" ]; then
+    GIT_EMAIL="$DEFAULT_GIT_EMAIL"
+    EMAIL_SRC=" (built-in default — change DEFAULT_GIT_EMAIL, or pass GIT_EMAIL=)"
   fi
   if git config --get user.email >/dev/null 2>&1; then
     log "user.email $(git config --get user.email)"
-  elif [ -n "$GIT_EMAIL" ]; then
-    git config --global user.email "$GIT_EMAIL"; log "user.email set to '$GIT_EMAIL'"
-  elif [ "$INTERACTIVE" = 1 ]; then
-    read -r -p "  Git commit email: " _e < /dev/tty
-    [ -n "$_e" ] && { git config --global user.email "$_e"; log "user.email set to '$_e'"; } \
-                 || warn "left unset — 'git commit' will fail until you set it"
+  else
+    git config --global user.email "$GIT_EMAIL"
+    log "user.email set to '$GIT_EMAIL'${EMAIL_SRC}"
   fi
   git config --global --get init.defaultBranch >/dev/null 2>&1 || git config --global init.defaultBranch main
 
@@ -576,8 +608,20 @@ if [ "$DO_INSTALL" = 1 ]; then
     # the script at that point would skip .env.local scaffolding and the summary
     # entirely, leaving a half-configured checkout and no report of what is left.
     # The summary below re-checks node_modules and prints the exact retry command.
-    ( cd "$ROOT" && NPM_CONFIG_UPDATE_NOTIFIER=false npm ci --no-fund --no-audit --loglevel=error ) \
-      || warn "npm ci failed (see above) — continuing; retry with: cd $ROOT && npm ci"
+    # One automatic retry. The failure seen in practice is a read ETIMEDOUT
+    # partway through unpacking, from a registry that had already spent 60-90s
+    # on single tarballs — not a bad lockfile, so the same command is worth
+    # running again. The second attempt resumes against a now-warm ~/.npm cache
+    # and normally finishes in seconds. --fetch-timeout raises npm's 5-minute
+    # default for the individual reads that stall; npm's built-in retries only
+    # cover whole requests, which is why the first attempt died outright.
+    _npm_ci() { ( cd "$1" && NPM_CONFIG_UPDATE_NOTIFIER=false \
+      npm ci --no-fund --no-audit --loglevel=error --fetch-timeout=600000 ); }
+    if ! _npm_ci "$ROOT"; then
+      warn "npm ci failed — retrying once against the warmed cache"
+      _npm_ci "$ROOT" \
+        || warn "npm ci failed twice (see above) — continuing; retry with: cd $ROOT && npm ci"
+    fi
   fi
   # Generated Prisma client lives in src/generated/prisma (see schema.prisma's
   # generator block), not node_modules/.prisma, so check the real path.
