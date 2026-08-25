@@ -98,7 +98,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
   return (
     <div className="flex flex-1 flex-col">
       <header className="dusk-panel">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5 px-4 pb-9 pt-5 sm:pb-11">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-2.5 px-4 pb-4 pt-3">
           <Link
             href="/tournaments"
             className="inline-flex w-fit items-center gap-1.5 text-sm font-bold text-dusk-foreground/70 transition-colors hover:text-dusk-foreground"
@@ -107,7 +107,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
             All tournaments
           </Link>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <h1 className="text-3xl sm:text-4xl">{tournament.name}</h1>
+            <h1 className="text-xl sm:text-2xl">{tournament.name}</h1>
             {/* The status stays `registration_open` from publish onward, so a
                 tournament waiting on its opening date would otherwise be badged
                 as taking entries it won't accept. */}
@@ -131,7 +131,7 @@ export default async function TournamentDetailPage(props: PageProps<"/tournament
             </TournamentChip>
           </div>
           {tournament.description && (
-            <p className="max-w-prose text-sm leading-relaxed text-dusk-foreground/75 sm:text-base">
+            <p className="max-w-prose text-xs leading-relaxed text-dusk-foreground/75 sm:text-sm">
               {tournament.description}
             </p>
           )}

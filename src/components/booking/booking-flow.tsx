@@ -8,13 +8,17 @@ import { SignInButton } from "@/components/auth-buttons";
 import { formatMoney, formatMoneyCompact, formatDateLabel, formatMinuteOfDay, dateStripParts } from "@/lib/format";
 import { groupSlotsIntoRuns, MAX_SELECTED_SLOTS } from "@/lib/scheduling";
 import { localMinuteOfDay, localWeekday, tierRateForMinute, type PriceTier } from "@/lib/pricing";
-import { SABBATH_END, SABBATH_START, sabbathBound } from "@/lib/hours-summary";
+import {
+  restWindowSpanLabel,
+  windowsOnWeekday,
+  type RestWindowRow,
+} from "@/lib/rest-windows";
 import { cn } from "@/lib/utils";
 
 const CALL_REQUIRED_HOURS = 4;
 
 type Court = { id: number; name: string };
-type SlotStatus = "available" | "confirmed" | "pending" | "past";
+type SlotStatus = "available" | "confirmed" | "pending" | "past" | "rest";
 type Slot = {
   date: string;
   startMs: number;
@@ -23,6 +27,8 @@ type Slot = {
   status: SlotStatus;
   /** Who holds the slot — empty for anything that isn't currently booked. */
   bookedBy: string;
+  /** The club's name for the rest closing this slot; empty unless `rest`. */
+  restLabel?: string;
 };
 
 /** A ticked cell, keyed the way the selection set holds it. */
@@ -55,12 +61,20 @@ function slotRangeLabel(startMin: number, endMin: number): string {
   return `${formatMinuteOfDay(startMin)} - ${formatMinuteOfDay(endMin)}`;
 }
 
-/** Day parts, matching how people talk about court times rather than any
- * business-hours boundary — a band is only rendered when it has slots. */
+/**
+ * Day parts, matching how people talk about court times rather than any
+ * business-hours boundary — a band is only rendered when it has slots, so a
+ * club open 9 to 5 shows two of these and one open around the clock shows all
+ * four.
+ *
+ * Six-hour blocks on the clock: Dawn 12 AM, Morning 6 AM, Afternoon 12 PM,
+ * Evening 6 PM. Fixed to the day rather than to the club's hours, so the same
+ * hour is called the same thing whatever the opening times are.
+ */
 function dayPart(startMin: number): string {
-  if (startMin < 360) return "Late night";
+  if (startMin < 360) return "Dawn";
   if (startMin < 720) return "Morning";
-  if (startMin < 1020) return "Afternoon";
+  if (startMin < 1080) return "Afternoon";
   return "Evening";
 }
 
@@ -70,11 +84,13 @@ const LOCKED_LABEL: Record<Exclude<SlotStatus, "available">, string> = {
   confirmed: "Booked",
   pending: "On hold",
   past: "Closed",
+  rest: "Closed",
 };
 
 /** The second line of a taken cell: whoever holds it. A booking can't be made
  *  without a name on the profile, so the fallback is only for legacy rows. */
 function holderLabel(slot: Slot): string {
+  if (slot.status === "rest") return slot.restLabel || "Not bookable";
   if (slot.status === "past") return "Not bookable";
   return slot.bookedBy || "A member";
 }
@@ -92,7 +108,8 @@ export function BookingFlow({
   signedIn,
   needsRegistration,
   closedLabel,
-  inSabbath,
+  restWindows,
+  activeRestLabel,
   initialDate,
   initialStart,
   initialCourt,
@@ -109,9 +126,12 @@ export function BookingFlow({
   signedIn: boolean;
   needsRegistration: boolean;
   closedLabel: string | null;
-  /** Whether the Sabbath is running as this page is served — the weekly closure
+  /** The club's weekly rests, whatever they are — this page renders whichever
+   *  touch the day on screen and knows nothing about what they commemorate. */
+  restWindows: RestWindowRow[];
+  /** The rest running as this page is served, by name. The weekly closure
    *  notice states a closure in force, not a policy, so it only shows then. */
-  inSabbath: boolean;
+  activeRestLabel: string | null;
   /** The day, hour and court the homepage card handed over, if it did. The hour
    *  is a start time in epoch ms; the court is the one the visitor chose there,
    *  and falls back to the first that still has the hour when it has gone in
@@ -123,6 +143,9 @@ export function BookingFlow({
   const [date, setDate] = useState(initialDate ?? todayISO);
   const [slotsByCourt, setSlotsByCourt] = useState<Record<number, Slot[]>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  /* Bumped by the retry button to re-run the fetch effect on the same day. */
+  const [reloadKey, setReloadKey] = useState(0);
   const [maxHours, setMaxHours] = useState(6);
   const [slotDurationMin, setSlotDurationMin] = useState(initialSlotDurationMin);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -182,18 +205,25 @@ export function BookingFlow({
   }, []);
 
   useEffect(() => {
+    /* Every court in one request, and aborted on cleanup: switching days
+       quickly — or a dev-server recompile landing mid-flight — leaves a request
+       whose body never arrives, and parsing that as JSON would throw past this
+       effect and take the grid down with it. */
+    const controller = new AbortController();
     let cancelled = false;
-    Promise.all(
-      courts.map((c) =>
-        fetch(`/api/availability?courtId=${c.id}&date=${date}`)
-          .then((r) => r.json())
-          .then((data) => [c.id, data] as const),
-      ),
-    )
-      .then((entries) => {
+    const ids = courts.map((c) => c.id);
+    fetch(`/api/availability?courts=${ids.join(",")}&date=${date}`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`availability ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
         if (cancelled) return;
+        setLoadError(false);
+        /* Keyed by court so a court the server had nothing to say about reads
+           as an empty column rather than as `undefined` further down. */
         const byCourt: Record<number, Slot[]> = {};
-        for (const [courtId, data] of entries) byCourt[courtId] = data.slots ?? [];
+        for (const id of ids) byCourt[id] = data.slotsByCourt?.[id] ?? [];
         setSlotsByCourt(byCourt);
         if (initialStart && !appliedStart.current) {
           appliedStart.current = true;
@@ -206,19 +236,25 @@ export function BookingFlow({
           const target = court ?? fallback;
           if (target) setSelected(new Set([pickKey(target.id, initialStart)]));
         }
-        const first = entries[0]?.[1];
-        if (first) {
-          setMaxHours(first.maxHours ?? 6);
-          setSlotDurationMin(first.slotDurationMin ?? 60);
-        }
+        setMaxHours(data.maxHours ?? 6);
+        setSlotDurationMin(data.slotDurationMin ?? 60);
+      })
+      .catch(() => {
+        /* An abort is this effect tidying up after itself, not a failure — the
+           replacement fetch is already in flight. Anything else is the day's
+           availability genuinely not arriving, which the grid says out loud
+           instead of rendering an empty schedule as though the club were shut. */
+        if (cancelled || controller.signal.aborted) return;
+        setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [date, courts, initialStart, initialCourt]);
+  }, [date, courts, initialStart, initialCourt, reloadKey]);
 
   /* Rows are the union of every court's start times for the selected day, so a
      court that is individually closed still leaves a gap in its own column
@@ -287,49 +323,49 @@ export function BookingFlow({
   }
 
   /* Read as UTC-midnight like the rest of the ISO-date arithmetic here, so the
-     weekday can't slip a day depending on the viewer's own timezone. Both days
-     the Sabbath touches carry the note: Friday runs up to it, Saturday out of
-     it, and each one's grid stops or starts partway through the day. */
+     weekday can't slip a day depending on the viewer's own timezone. Every rest
+     touching this day carries its note: a window spanning two days appears on
+     both, because each day's grid stops or starts partway through it. */
   const selectedWeekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  const isSabbathDay = selectedWeekday === SABBATH_START.weekday || selectedWeekday === SABBATH_END.weekday;
-  /* Friday's bookable hours all run up to the Sabbath, so the note follows them
-     as what comes next; Saturday's all run out of it, so there it comes first.
-     Either way the card sits on the same side as the closure it describes. */
-  const sabbathNoteAfterGrid = selectedWeekday === SABBATH_START.weekday;
+  const restsToday = windowsOnWeekday(restWindows, selectedWeekday);
+  const restsWithNote = restsToday.filter((w) => w.noteTitle.trim() !== "");
 
-  const sabbathCard = (
-    <div className="surface-card flex flex-col items-center gap-4 p-5 text-center sm:p-6">
+  const restCard = (w: RestWindowRow) => (
+    <div key={w.id} className="surface-card flex flex-col items-center gap-4 p-5 text-center sm:p-6">
       <Sunset className="size-6 text-primary" />
       <div className="space-y-1.5">
-        <h3 className="text-lg sm:text-xl">Closed for the Sabbath</h3>
+        <h3 className="text-lg sm:text-xl">{w.noteTitle}</h3>
         <p className="mx-auto max-w-prose text-sm text-muted-foreground">
-          We keep the seventh day as a day of rest and worship, so no courts are booked from{" "}
-          <span className="font-semibold text-foreground">{sabbathBound(SABBATH_START)}</span> to{" "}
-          <span className="font-semibold text-foreground">{sabbathBound(SABBATH_END)}</span>. The hours shown{" "}
-          {sabbathNoteAfterGrid ? "above" : "below"} are the ones outside that — we&rsquo;d love to have you then.
+          {w.noteBody && <>{w.noteBody} </>}
+          No courts are booked from{" "}
+          <span className="font-semibold text-foreground">{restWindowSpanLabel(w)}</span>.
         </p>
       </div>
-      <blockquote className="mx-auto max-w-prose rounded-2xl bg-primary/8 px-5 py-4 text-left">
-        <p className="text-sm italic leading-relaxed text-foreground">
-          &ldquo;Remember the sabbath day, to keep it holy. Six days shalt thou labour, and do all thy work: but the
-          seventh day is the sabbath of the LORD thy God: in it thou shalt not do any work.&rdquo;
-        </p>
-        <footer className="mt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-primary">
-          Exodus 20:8&ndash;10 (KJV)
-        </footer>
-      </blockquote>
+      {/* Optional, and empty for a club that just wants the time closed. */}
+      {w.quote && (
+        <blockquote className="mx-auto max-w-prose rounded-2xl bg-primary/8 px-5 py-4 text-left">
+          <p className="text-sm italic leading-relaxed text-foreground">&ldquo;{w.quote}&rdquo;</p>
+          {w.quoteSource && (
+            <footer className="mt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-primary">
+              {w.quoteSource}
+            </footer>
+          )}
+        </blockquote>
+      )}
     </div>
   );
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-6 sm:gap-5 sm:px-4 sm:py-8">
-      {/* Only while the Sabbath is actually on, and suppressed on the two days
-          that carry the full Sabbath card below, so a visitor never reads two
-          overlapping closure notices at once. */}
-      {closedLabel && inSabbath && !isSabbathDay && (
+      {/* Only while a rest is actually on, and suppressed on a day already
+          carrying its full card, so a visitor never reads two overlapping
+          closure notices at once. */}
+      {closedLabel && activeRestLabel && restsWithNote.length === 0 && (
         <p className="flex items-start gap-2.5 rounded-2xl bg-primary/8 px-4 py-3.5 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0 text-primary" />
-          <span>Closed weekly {closedLabel} — we keep the seventh-day Sabbath.</span>
+          <span>
+            Closed weekly {closedLabel} — we keep {activeRestLabel}.
+          </span>
         </p>
       )}
 
@@ -449,10 +485,24 @@ export function BookingFlow({
         </button>
       </div>
 
-      {isSabbathDay && !sabbathNoteAfterGrid && sabbathCard}
-
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading availability…</p>
+      ) : loadError ? (
+        <div className="surface-card flex flex-col items-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            Couldn&rsquo;t load this day&rsquo;s availability. Check your connection and try again.
+          </p>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => {
+              setLoading(true);
+              setReloadKey((k) => k + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
       ) : rows.length === 0 ? (
         <p className="surface-card p-6 text-center text-sm text-muted-foreground">Closed this day.</p>
       ) : (
@@ -685,10 +735,10 @@ export function BookingFlow({
         </>
       )}
 
-      {/* Last on Friday, so picking a slot never pushes the booking form below
-          the notice — the thing you are doing stays above the thing you are
-          reading. On Saturday it has already rendered, above the grid. */}
-      {isSabbathDay && sabbathNoteAfterGrid && sabbathCard}
+      {/* Always last, so picking a slot never pushes the booking form below the
+          notice — the thing you are doing stays above the thing you are reading,
+          on the day a rest ends as much as on the day it begins. */}
+      {restsWithNote.map(restCard)}
     </div>
   );
 }

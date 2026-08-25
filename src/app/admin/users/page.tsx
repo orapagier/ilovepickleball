@@ -41,9 +41,6 @@ export default async function AdminUsersPage(props: PageProps<"/admin/users">) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-end gap-3">
-        <p className="mr-auto text-sm text-muted-foreground">
-          Anyone who has signed in once can be made an admin from this list.
-        </p>
         <p className="text-sm text-muted-foreground">
           {users.length} {users.length === 1 ? "user" : "users"}
           {q ? " matching" : ""}

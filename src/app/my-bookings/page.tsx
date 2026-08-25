@@ -82,7 +82,6 @@ export default async function MyBookingsPage() {
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        eyebrow={isAdmin ? "Admin view — every customer" : "Your court time"}
         title={isAdmin ? "All bookings" : "My bookings"}
         description={
           isAdmin

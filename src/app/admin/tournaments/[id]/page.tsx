@@ -178,7 +178,7 @@ export default async function AdminTournamentPage(props: PageProps<"/admin/tourn
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold">{tournament.name}</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">{tournament.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {FORMAT_LABELS[tournament.format]} · plays {formatDateTimeLabel(tournament.startAt, tz)} ·{" "}
             {registered.length}/{tournament.maxEntries} entries

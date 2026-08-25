@@ -11,8 +11,10 @@ import {
   getPriceTiers,
   getBlackoutDateSet,
   getBusyIntervalsByCourt,
+  getRestWindows,
 } from "@/lib/booking-data";
 import { buildAvailability, rangeUtcBounds, MAX_ADVANCE_DAYS, type BusinessHourRow } from "@/lib/scheduling";
+import type { RestWindowRow } from "@/lib/rest-windows";
 import { getSessionUser } from "@/lib/auth-helpers";
 import { summarizeHours, closedWindowLabel } from "@/lib/hours-summary";
 import { formatMoney, formatMinuteOfDay, splitMoney } from "@/lib/format";
@@ -40,12 +42,14 @@ function mapsEmbedUrl(address: string): string {
 }
 
 /**
- * Today's remaining hours, with how many courts are still free in each.
+ * Today's operating hours, with how many courts are still free in each.
  *
  * One query for every court's bookings, then the same `buildAvailability` the
  * booking grid runs — so the homepage can never disagree with the page it sends
- * people to. Slots already gone (past, or inside the notice window) drop out;
- * what's left is the strip in the hero.
+ * people to. Slots already gone (past, or inside the notice window) are carried
+ * with `past` set rather than dropped: the hero card greys them off exactly as
+ * the grid does, and its height is the day's opening hours instead of however
+ * much of the day happens to be left.
  */
 async function openHoursToday(params: {
   courtIds: number[];
@@ -54,9 +58,10 @@ async function openHoursToday(params: {
   leadMinutes: number;
   hours: BusinessHourRow[];
   blackouts: Set<string>;
+  rest: RestWindowRow[];
   todayISO: string;
 }): Promise<OpenHour[]> {
-  const { courtIds, tz, slotDurationMin, leadMinutes, hours, blackouts, todayISO } = params;
+  const { courtIds, tz, slotDurationMin, leadMinutes, hours, blackouts, rest, todayISO } = params;
   if (courtIds.length === 0) return [];
 
   const { start, end } = rangeUtcBounds(tz, todayISO, todayISO);
@@ -71,15 +76,23 @@ async function openHoursToday(params: {
       leadMinutes,
       hours,
       blackouts,
+      rest,
       busy: busyByCourt.get(courtId) ?? [],
       fromISO: todayISO,
       toISO: todayISO,
       now,
     });
     for (const slot of day?.slots ?? []) {
-      if (slot.status === "past") continue;
       const ms = slot.start.getTime();
-      const row = byStart.get(ms) ?? { startMs: ms, label: slot.label, free: [], courts: 0 };
+      const row = byStart.get(ms) ?? {
+        startMs: ms,
+        label: slot.label,
+        free: [],
+        courts: 0,
+        past: slot.status === "past",
+        rest: slot.status === "rest",
+        restLabel: slot.restLabel,
+      };
       row.courts += 1;
       if (slot.available) row.free.push(courtId);
       byStart.set(ms, row);
@@ -102,6 +115,7 @@ export default async function Home() {
     getLatestChampion(),
     getBlackoutDateSet(),
   ]);
+  const restWindows = await getRestWindows();
 
   const today = DateTime.now().setZone(settings.timezone);
   const todayISO = today.toFormat("yyyy-LL-dd");
@@ -112,6 +126,7 @@ export default async function Home() {
     leadMinutes: settings.leadMinutes,
     hours,
     blackouts,
+    rest: restWindows,
     todayISO,
   });
 

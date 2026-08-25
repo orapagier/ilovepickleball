@@ -20,7 +20,7 @@ export default async function NewTournamentPage() {
         ← Tournaments
       </Link>
       <div>
-        <h1 className="text-3xl font-bold">New tournament</h1>
+        <h1 className="text-xl font-bold sm:text-2xl">New tournament</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Saving creates it as a draft — nothing is visible to members until you publish it.
         </p>

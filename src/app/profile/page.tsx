@@ -40,7 +40,6 @@ export default async function ProfilePage() {
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
-        eyebrow="Member"
         title="My profile"
         description={user.email ?? "Your details, your level, and the way out."}
         action={

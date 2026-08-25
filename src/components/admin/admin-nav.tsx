@@ -70,19 +70,37 @@ const TITLES: Record<string, string> = {
   "/admin/pricing": "Court rates",
 };
 
+/* One line under each section's name, saying what the page is for — the same
+   line the customer-facing pages carry, so the admin area opens the same way.
+   Written for someone who landed here from the nav and wants to know whether
+   this is the screen they meant. */
+const DESCRIPTIONS: Record<string, string> = {
+  "/admin": "Today's bookings, revenue and court use at a glance.",
+  "/admin/queue": "Payments waiting to be verified and call bookings waiting to be confirmed.",
+  "/admin/bookings": "Every booking, newest first. Filter by status, edit or cancel a row, export the lot as CSV.",
+  "/admin/tournaments": "Create a tournament as a draft, publish it to take entries, then run it on the day.",
+  "/admin/users": "Everyone who has signed in. Search by name, email or mobile, and grant admin access.",
+  "/admin/settings": "Club name, timezone, payment details and how long a slot is held.",
+  "/admin/pricing": "Time-of-day rate bands — one price for daytime, another for the evening.",
+  "/admin/courts": "The courts members can book, in the order they appear on the booking grid.",
+  "/admin/hours": "Opening and closing time for each day, and the weekly rest that closes over them.",
+  "/admin/blackouts": "Days the courts are fully closed regardless of the weekly schedule.",
+};
+
 /**
  * The same dusk band Book and Tournaments open with, titled from the nav entry
  * the route sits under — so the admin area reads as part of one product rather
- * than a bare heading on the page background. A detail page (a tournament, a
- * user) keeps its own name in an h1 under the band.
+ * than a bare heading on the page background.
+ *
+ * Only a section's own page gets one. A detail route beneath it — a tournament,
+ * a user, the new-tournament form — already names itself in an h1, and a band
+ * carrying the section name above that is the same page titled twice.
  */
 export function AdminHeader() {
   const pathname = usePathname();
-  // Longest match wins, so /admin/tournaments/new lands under Tournaments.
-  const current = GROUPS.flatMap((g) => g.items)
-    .filter((i) => isCurrent(pathname, i.href))
-    .sort((a, b) => b.href.length - a.href.length)[0];
-  return <PageHeader eyebrow="Admin" title={current ? (TITLES[current.href] ?? current.label) : "Admin"} />;
+  const current = GROUPS.flatMap((g) => g.items).find((i) => i.href === pathname);
+  if (!current) return null;
+  return <PageHeader title={TITLES[current.href] ?? current.label} description={DESCRIPTIONS[current.href]} />;
 }
 
 function isCurrent(pathname: string, href: string): boolean {

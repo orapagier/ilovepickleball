@@ -7,6 +7,11 @@
  * something there. It also gives Book, Tournaments and My bookings one shared
  * opening, so moving between them feels like moving inside one product.
  *
+ * It is deliberately shallow — one line's worth of height. Only the homepage
+ * gets a hero; an inner page's own first control (Book's grid, the bookings
+ * list) is the thing the visitor came to reach, so the band names the page and
+ * gets out of the way.
+ *
  * Everything inside is set for a dark ground — a caller passing
  * `text-muted-foreground` into `description` will get an invisible line, so
  * pass plain text and let this decide the tone.
@@ -16,13 +21,11 @@
  * the band, which is why the dusk itself is now blue and teal alone.
  */
 export function PageHeader({
-  eyebrow,
   title,
   description,
   action,
   children,
 }: {
-  eyebrow?: string;
   title: string;
   description?: React.ReactNode;
   action?: React.ReactNode;
@@ -31,14 +34,15 @@ export function PageHeader({
 }) {
   return (
     <header className="dusk-panel relative">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-x-8 gap-y-5 px-4 pb-9 pt-7 sm:pb-11 sm:pt-9">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-x-8 gap-y-2 px-4 pb-4 pt-4">
         <div className="min-w-0">
-          {eyebrow && <p className="eyebrow eyebrow-on-dusk">{eyebrow}</p>}
-          <h1 className={`text-3xl sm:text-4xl ${eyebrow ? "mt-4" : ""}`}>{title}</h1>
+          <h1 className="text-xl sm:text-2xl">{title}</h1>
           {description && (
-            <div className="mt-3 max-w-2xl text-sm leading-relaxed text-dusk-foreground/75">{description}</div>
+            <div className="mt-1 max-w-2xl text-pretty text-xs leading-relaxed text-dusk-foreground/75 sm:text-sm">
+              {description}
+            </div>
           )}
-          {children && <div className="mt-5">{children}</div>}
+          {children && <div className="mt-3">{children}</div>}
         </div>
         {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
       </div>

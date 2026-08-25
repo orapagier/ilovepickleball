@@ -6,6 +6,7 @@ import {
   getActiveCourts,
   getPriceTiers,
   getBusyIntervalsByCourt,
+  getRestWindows,
 } from "@/lib/booking-data";
 import { buildAvailability, rangeUtcBounds, type DaySlot, type SlotStatus } from "@/lib/scheduling";
 import { computeBookingPriceCents, localMinuteOfDay, localWeekday, tierRateForMinute } from "@/lib/pricing";
@@ -124,12 +125,13 @@ function openRanges(date: string, slots: DaySlot[], tz: string): AgentOpenRange[
  */
 export async function loadAvailability(params: { fromISO: string; days: number; courtId?: number | null }) {
   const { fromISO, days, courtId } = params;
-  const [settings, hours, blackouts, allCourts, tiers] = await Promise.all([
+  const [settings, hours, blackouts, allCourts, tiers, rest] = await Promise.all([
     getSettings(),
     getBusinessHours(),
     getBlackoutDateSet(),
     getActiveCourts(),
     getPriceTiers(),
+    getRestWindows(),
   ]);
 
   const tz = settings.timezone;
@@ -153,6 +155,7 @@ export async function loadAvailability(params: { fromISO: string; days: number; 
       leadMinutes: settings.leadMinutes,
       hours,
       blackouts,
+      rest,
       busy: busyByCourt.get(court.id) ?? [],
       fromISO,
       toISO,

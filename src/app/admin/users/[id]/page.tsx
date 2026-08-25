@@ -105,7 +105,7 @@ export default async function AdminUserDetailPage(props: PageProps<"/admin/users
           Registered users
         </Link>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="flex flex-wrap items-center gap-3 text-3xl font-bold">
+          <h1 className="flex flex-wrap items-center gap-3 text-xl font-bold sm:text-2xl">
             {user.name || "Unnamed"}
             {user.role === "admin" && (
               <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-primary">Admin</span>

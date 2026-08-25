@@ -51,7 +51,7 @@ export default async function TournamentRunPage(props: PageProps<"/admin/tournam
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Run day</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Run day</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {FORMAT_LABELS[tournament.format]} · {done.length} of {tournament.matches.length} matches played
           </p>

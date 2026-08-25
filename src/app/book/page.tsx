@@ -1,23 +1,24 @@
 import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
 import { DateTime } from "luxon";
-import { getActiveCourts, getSettings, getBusinessHours, getPriceTiers } from "@/lib/booking-data";
+import { getActiveCourts, getSettings, getBusinessHours, getPriceTiers, getRestWindows } from "@/lib/booking-data";
 import { getSessionUser, getProfileCompletion } from "@/lib/auth-helpers";
 import { splitMoney } from "@/lib/format";
 import { minTierRateCents } from "@/lib/pricing";
-import { closedWindowLabel, isSabbathNow } from "@/lib/hours-summary";
+import { closedWindowLabel } from "@/lib/hours-summary";
+import { activeRestWindow } from "@/lib/rest-windows";
 import { MAX_ADVANCE_DAYS } from "@/lib/scheduling";
 import { BookingFlow } from "@/components/booking/booking-flow";
 import { PageHeader } from "@/components/page-header";
 
 export default async function BookPage(props: PageProps<"/book">) {
   const searchParams = await props.searchParams;
-  const [courts, settings, hours, tiers, user] = await Promise.all([
+  const [courts, settings, hours, tiers, user, restWindows] = await Promise.all([
     getActiveCourts(),
     getSettings(),
     getBusinessHours(),
     getPriceTiers(),
     getSessionUser(),
+    getRestWindows(),
   ]);
   const todayISO = DateTime.now().setZone(settings.timezone).toFormat("yyyy-LL-dd");
   const maxISO = DateTime.now().setZone(settings.timezone).plus({ days: MAX_ADVANCE_DAYS }).toFormat("yyyy-LL-dd");
@@ -44,7 +45,7 @@ export default async function BookPage(props: PageProps<"/book">) {
           /* The three facts that price the decision, before the grid below asks
              for one. Set for the dusk band, not the page. */
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="figure-display text-lg text-dusk-foreground">
+            <span className="figure-display text-base text-dusk-foreground">
               {startingRate.symbol}
               {startingRate.amount}
             </span>
@@ -64,15 +65,7 @@ export default async function BookPage(props: PageProps<"/book">) {
             </Link>
           )
         }
-      >
-        <p className="flex max-w-xl items-start gap-2.5 rounded-2xl bg-white/10 px-4 py-3.5 text-xs leading-relaxed text-dusk-foreground/85 sm:text-sm">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-          <span>
-            Pay instantly via GCash, BDO or QRPh — or for bookings of 4 hours or more, call us to arrange
-            payment. Your slot is held for {settings.holdMinutes} minutes.
-          </span>
-        </p>
-      </PageHeader>
+      />
       <BookingFlow
         courts={courts}
         todayISO={todayISO}
@@ -86,7 +79,8 @@ export default async function BookPage(props: PageProps<"/book">) {
         signedIn={!!user}
         needsRegistration={needsRegistration}
         closedLabel={closedLabel}
-        inSabbath={isSabbathNow(settings.timezone)}
+        restWindows={restWindows}
+        activeRestLabel={activeRestWindow(restWindows, settings.timezone)?.label ?? null}
         initialDate={initialDate}
         initialStart={initialStart}
         initialCourt={initialCourt}

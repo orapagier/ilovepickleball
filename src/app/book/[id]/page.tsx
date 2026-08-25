@@ -74,10 +74,9 @@ export default async function BookingDetailPage(props: PageProps<"/book/[id]">) 
       </Link>
 
       <div className="surface-raised p-5 sm:p-6">
-        <p className="eyebrow">Booking #{booking.id.slice(-6).toUpperCase()}</p>
-        <h1 className="mt-3.5 text-2xl">{booking.court.name}</h1>
+        <h1 className="text-2xl">{booking.court.name}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {dateLabel} · {booking.hours}h
+          {dateLabel} · {booking.hours}h · #{booking.id.slice(-6).toUpperCase()}
         </p>
         <p className="mt-4 flex items-baseline gap-2 border-t border-border pt-4">
           <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Total</span>

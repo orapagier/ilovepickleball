@@ -58,9 +58,8 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
           area — but an admin who lands on this page shouldn't have to go find
           it, hence the shortcut. */}
       <PageHeader
-        eyebrow="Club play"
         title="Tournaments"
-        description="Run on our courts by the staff. Browse what's open, enter with a partner, and follow the draw live on the day."
+        description="Run by our staff. Browse what's open, enter with a partner, and follow the draw live."
         action={
           user?.role === "admin" && (
             <Link href="/admin/tournaments/new" className="btn btn-primary">

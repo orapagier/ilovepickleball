@@ -1,5 +1,7 @@
 import { DateTime } from "luxon";
 
+import { restWindowAt, weekdaysTouched, windowsOnWeekday, type RestWindowRow } from "@/lib/rest-windows";
+
 /** Customers can only book courts this many days out from today. */
 export const MAX_ADVANCE_DAYS = 30;
 
@@ -18,7 +20,7 @@ export type BusyInterval = { start: Date; end: Date };
  *  customer's display name, carried so the grid can name who holds a slot; it
  *  is optional because not every reader of these intervals needs it. */
 export type StatusInterval = { start: Date; end: Date; confirmed: boolean; bookedBy?: string };
-export type SlotStatus = "available" | "confirmed" | "pending" | "past";
+export type SlotStatus = "available" | "confirmed" | "pending" | "past" | "rest";
 /** `bookedBy` is empty unless the slot is held (`confirmed`/`pending`) *and*
  *  the caller supplied names on `busy` — an elapsed slot never names anyone. */
 export type DaySlot = {
@@ -28,6 +30,9 @@ export type DaySlot = {
   available: boolean;
   status: SlotStatus;
   bookedBy: string;
+  /** The club's own word for the rest that closes this slot — "Sabbath",
+   *  "Morning service". Empty for every status other than `rest`. */
+  restLabel: string;
 };
 export type DayAvailability = { date: string; slots: DaySlot[] };
 
@@ -122,6 +127,7 @@ function weekday0Sunday(dt: DateTime): number {
   return dt.weekday % 7;
 }
 
+
 /** UTC instant bounds covering local dates [fromISO, toISO] inclusive, in `tz`. */
 export function rangeUtcBounds(tz: string, fromISO: string, toISO: string): { start: Date; end: Date } {
   const start = DateTime.fromISO(fromISO, { zone: tz }).startOf("day");
@@ -140,14 +146,30 @@ export function buildAvailability(params: {
   leadMinutes: number;
   hours: BusinessHourRow[];
   blackouts: Set<string>; // YYYY-MM-DD
+  /** The club's weekly rests. Enforced over `hours`, not beside them. */
+  rest: RestWindowRow[];
   busy: StatusInterval[];
   fromISO: string;
   toISO: string;
   now: Date;
 }): DayAvailability[] {
-  const { tz, slotDurationMin, leadMinutes, hours, blackouts, busy, fromISO, toISO, now } = params;
+  const { tz, slotDurationMin, leadMinutes, hours, blackouts, rest, busy, fromISO, toISO, now } = params;
   const leadCutoff = DateTime.fromJSDate(now, { zone: tz }).plus({ minutes: leadMinutes });
   const nowDt = DateTime.fromJSDate(now, { zone: tz });
+
+  /* A rest is the one closed stretch the club is actually asked about, so its
+     slots are drawn and named rather than left out. "How long is a day" has no
+     answer on a day nobody opens, though, so the frame comes from the hours of
+     the days that rest actually displaces — a Friday-to-Saturday rest is drawn
+     across Friday's and Saturday's own opening times, and an unrelated day that
+     happens to open at 5 AM does not stretch it. */
+  function restFrame(windows: RestWindowRow[]): { from: number; to: number } | null {
+    const days = new Set(windows.flatMap(weekdaysTouched));
+    const rows = hours.filter((h) => days.has(h.weekday));
+    const src = rows.length > 0 ? rows : hours;
+    if (src.length === 0) return null;
+    return { from: Math.min(...src.map((h) => h.openMin)), to: Math.max(...src.map((h) => h.closeMin)) };
+  }
 
   const out: DayAvailability[] = [];
   let day = DateTime.fromISO(fromISO, { zone: tz }).startOf("day");
@@ -169,18 +191,64 @@ export function buildAvailability(params: {
           if (startDt.isValid) {
             const start = startDt.toJSDate();
             const end = new Date(start.getTime() + slotDurationMin * 60_000);
-            const { status, bookedBy } = slotStatus({ startDt, start, end, busy, leadCutoff, nowDt });
-            slots.push({
-              start,
-              end,
-              label: formatSlotLabel(startDt),
-              available: status === "available",
-              status,
-              bookedBy,
-            });
+            /* The rest is checked before anything else, because it outranks
+               everything else: an admin who declares a rest has closed that
+               time, whatever the weekly hours say and whoever already holds a
+               booking there. `isValidSlotStart` refuses the same minutes, so
+               the grid and the server cannot drift apart. */
+            const resting = restWindowAt(rest, weekday * 1440 + minute);
+            if (resting) {
+              slots.push({
+                start,
+                end,
+                label: formatSlotLabel(startDt),
+                available: false,
+                status: "rest",
+                bookedBy: "",
+                restLabel: resting.label,
+              });
+            } else {
+              const { status, bookedBy } = slotStatus({ startDt, start, end, busy, leadCutoff, nowDt });
+              slots.push({
+                start,
+                end,
+                label: formatSlotLabel(startDt),
+                available: status === "available",
+                status,
+                bookedBy,
+                restLabel: "",
+              });
+            }
           }
           minute += slotDurationMin;
         }
+      }
+
+      /* Then the rest windows that fall outside the day's opening hours, on the
+         same grid of start times so the two read as one column. Without this a
+         club whose hours already stop for the rest would show nothing at all
+         there, and the day would be a short list that changes length — which is
+         exactly what the hours are being drawn around. */
+      const taken = new Set(slots.map((s) => s.start.getTime()));
+      const frame = restFrame(windowsOnWeekday(rest, weekday));
+      for (let minute = frame?.from ?? 0; frame && minute + slotDurationMin <= frame.to; minute += slotDurationMin) {
+        const resting = restWindowAt(rest, weekday * 1440 + minute);
+        if (!resting) continue;
+
+        const startDt = day.set({ hour: Math.floor(minute / 60), minute: minute % 60, second: 0, millisecond: 0 });
+        if (!startDt.isValid) continue;
+        const start = startDt.toJSDate();
+        if (taken.has(start.getTime())) continue;
+
+        slots.push({
+          start,
+          end: new Date(start.getTime() + slotDurationMin * 60_000),
+          label: formatSlotLabel(startDt),
+          available: false,
+          status: "rest",
+          bookedBy: "",
+          restLabel: resting.label,
+        });
       }
     }
 
@@ -203,10 +271,12 @@ export function isValidSlotStart(params: {
   leadMinutes: number;
   hours: BusinessHourRow[];
   blackouts: Set<string>;
+  /** Refused outright, however the request reached us. */
+  rest: RestWindowRow[];
   startMs: number;
   now: Date;
 }): { start: Date; end: Date } | null {
-  const { tz, slotDurationMin, leadMinutes, hours, blackouts, startMs, now } = params;
+  const { tz, slotDurationMin, leadMinutes, hours, blackouts, rest, startMs, now } = params;
   const startDt = DateTime.fromMillis(startMs, { zone: tz });
   if (!startDt.isValid) return null;
 
@@ -217,6 +287,10 @@ export function isValidSlotStart(params: {
   if (startDt < leadCutoff) return null;
 
   const weekday = weekday0Sunday(startDt);
+  /* Before the hours are consulted at all: a rest closes the time whatever the
+     weekly grid says, and this is the check a hand-made POST has to clear. */
+  if (restWindowAt(rest, weekday * 1440 + startDt.hour * 60 + startDt.minute)) return null;
+
   for (const h of hours.filter((row) => row.weekday === weekday)) {
     let minute = h.openMin;
     while (minute + slotDurationMin <= h.closeMin) {
@@ -249,21 +323,22 @@ export function isValidBookingRange(params: {
   leadMinutes: number;
   hours: BusinessHourRow[];
   blackouts: Set<string>;
+  rest: RestWindowRow[];
   startMs: number;
   durationHours: number;
   now: Date;
 }): { start: Date; end: Date } | null {
-  const { durationHours, startMs, slotDurationMin, ...rest } = params;
+  const { durationHours, startMs, slotDurationMin, ...base } = params;
   if (durationHours < 1) return null;
 
   let firstStart: Date | null = null;
   let lastEnd: Date | null = null;
   for (let i = 0; i < durationHours; i++) {
     const slot = isValidSlotStart({
-      ...rest,
+      ...base,
       slotDurationMin,
       startMs: startMs + i * slotDurationMin * 60_000,
-      now: rest.now,
+      now: base.now,
     });
     if (!slot) return null;
     if (i === 0) firstStart = slot.start;

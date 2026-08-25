@@ -190,6 +190,38 @@ model PriceTier {
   @@index([startMin])
 }
 
+/// A weekly-recurring closed window the club names and explains: a Sabbath, a
+/// Sunday morning service, a midweek prayer meeting.
+///
+/// Distinct from `BusinessHour`, which says when the courts are open at all.
+/// This is enforced *over* the hours — adding one closes that time without the
+/// weekly grid having to be edited to match, and `isValidSlotStart` refuses a
+/// booking inside it however the request arrives. Deleting every row leaves a
+/// club that never closes for rest, which is a perfectly good configuration.
+model RestWindow {
+  id           Int    @id @default(autoincrement())
+  /// Both ends as (weekday 0=Sun..6=Sat, minutes from local midnight 0..1440).
+  /// The window is [start, end) over minutes of the week and may wrap past
+  /// Saturday into Sunday — an `end` at or before `start` means exactly that.
+  /// The two being equal is an empty window, never a whole one.
+  startWeekday Int
+  startMinute  Int
+  endWeekday   Int
+  endMinute    Int
+  /// What a blocked slot is called in the grid: "Sabbath", "Morning service".
+  label        String @default("Rest")
+  /// The card shown on /book for a day this window touches. An empty title
+  /// draws no card — a club may close the time without explaining itself.
+  noteTitle    String @default("")
+  noteBody     String @default("")
+  /// Optional pull-quote under the note, with its attribution.
+  quote        String @default("")
+  quoteSource  String @default("")
+  sortOrder    Int    @default(0)
+
+  @@index([sortOrder])
+}
+
 model BlackoutDate {
   date   DateTime @id @db.Date
   reason String   @default("")

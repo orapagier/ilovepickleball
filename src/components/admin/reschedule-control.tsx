@@ -30,10 +30,10 @@ export function RescheduleControl({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    fetch(`/api/availability?courtId=${courtId}&date=${date}`)
+    fetch(`/api/availability?courts=${courtId}&date=${date}`)
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setSlots(data.slots ?? []);
+        if (!cancelled) setSlots(data.slotsByCourt?.[courtId] ?? []);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

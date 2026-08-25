@@ -12,6 +12,7 @@ import {
   getBusyIntervals,
   getPriceTiers,
   ACTIVE_STATUSES,
+  getRestWindows,
 } from "@/lib/booking-data";
 import {
   isValidBookingRange,
@@ -73,6 +74,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
   const settings = await getSettings();
   const hoursRows = await getBusinessHours();
   const blackouts = await getBlackoutDateSet();
+  const restWindows = await getRestWindows();
   const now = new Date();
 
   const runs = groupSlotsIntoRuns(picks, settings.slotDurationMin);
@@ -93,6 +95,7 @@ export async function createBooking(_prev: ActionState, formData: FormData): Pro
       leadMinutes: settings.leadMinutes,
       hours: hoursRows,
       blackouts,
+      rest: restWindows,
       startMs: run.startMs,
       durationHours: run.hours,
       now,

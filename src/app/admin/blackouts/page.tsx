@@ -8,10 +8,6 @@ export default async function AdminBlackoutsPage() {
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
-        Days the court is fully closed regardless of the weekly schedule (holidays, maintenance, etc.).
-      </p>
-
       <ul className="flex flex-col gap-2">
         {blackouts.map((b) => {
           const iso = b.date.toISOString().slice(0, 10);

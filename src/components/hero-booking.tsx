@@ -29,25 +29,53 @@ export type OpenHour = {
   free: number[];
   /** Courts open at all in this hour, free or not. */
   courts: number;
+  /**
+   * Already started, or inside the lead-time window — `free` is empty and stays
+   * empty. Kept in the list rather than dropped so the card shows the whole
+   * operating day and greys off what has gone, the way the booking grid does.
+   * A card built only from what is left would shrink hour by hour through the
+   * afternoon, and the hero around it with it.
+   */
+  past: boolean;
+  /** Inside one of the club's rest windows. Unbookable for a reason worth
+   *  naming, rather than merely absent from the hours the way any other closed
+   *  stretch is. `restLabel` is the club's own word for it. */
+  rest: boolean;
+  restLabel: string;
 };
 
 export type HeroCourt = { id: number; name: string };
 
 /** The same aggregate the homepage builds server-side for today, rebuilt on the
  *  client for any other day: one row per start time, across all courts. */
-type ApiSlot = { date: string; startMs: number; label: string; available: boolean; status: string };
+type ApiSlot = {
+  date: string;
+  startMs: number;
+  label: string;
+  available: boolean;
+  status: string;
+  restLabel?: string;
+};
 
-function aggregate(date: string, courtIds: number[], payloads: { slots?: ApiSlot[] }[]): OpenHour[] {
+function aggregate(date: string, courtIds: number[], slotsByCourt: Record<number, ApiSlot[]>): OpenHour[] {
   const byStart = new Map<number, OpenHour>();
-  payloads.forEach((payload, i) => {
-    for (const s of payload.slots ?? []) {
-      if (s.date !== date || s.status === "past") continue;
-      const row = byStart.get(s.startMs) ?? { startMs: s.startMs, label: s.label, free: [], courts: 0 };
+  for (const courtId of courtIds) {
+    for (const s of slotsByCourt[courtId] ?? []) {
+      if (s.date !== date) continue;
+      const row = byStart.get(s.startMs) ?? {
+        startMs: s.startMs,
+        label: s.label,
+        free: [],
+        courts: 0,
+        past: s.status === "past",
+        rest: s.status === "rest",
+        restLabel: s.restLabel ?? "",
+      };
       row.courts += 1;
-      if (s.available) row.free.push(courtIds[i]);
+      if (s.available) row.free.push(courtId);
       byStart.set(s.startMs, row);
     }
-  });
+  }
   return [...byStart.values()].sort((a, b) => a.startMs - b.startMs);
 }
 
@@ -87,26 +115,24 @@ export function HeroBooking({
   const loading = hours === undefined;
   const failed = hours === null;
 
-  /* One fetch per court per day, cached by day — the same `/api/availability`
-     the booking grid reads, so the hero and the grid cannot disagree. */
+  /* One fetch per day, every court in it, cached by day — the same
+     `/api/availability` the booking grid reads, so the hero and the grid cannot
+     disagree. */
   useEffect(() => {
     // `in`, not truthiness: a failed day is remembered as null, and a falsy
     // check would refetch it on every render for as long as it kept failing.
     if (date in byDate) return;
     let cancelled = false;
     const ids = courts.map((c) => c.id);
-    Promise.all(
-      ids.map((id) =>
-        fetch(`/api/availability?courtId=${id}&date=${date}`).then((r) => {
-          // A 500 still parses as JSON, into an object with no `slots` — which
-          // would read as a day with nothing open on it.
-          if (!r.ok) throw new Error(`availability ${r.status}`);
-          return r.json();
-        }),
-      ),
-    )
-      .then((payloads) => {
-        if (!cancelled) setByDate((prev) => ({ ...prev, [date]: aggregate(date, ids, payloads) }));
+    fetch(`/api/availability?courts=${ids.join(",")}&date=${date}`)
+      .then((r) => {
+        // A 500 still parses as JSON, into an object with no slots — which
+        // would read as a day with nothing open on it.
+        if (!r.ok) throw new Error(`availability ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (!cancelled) setByDate((prev) => ({ ...prev, [date]: aggregate(date, ids, data.slotsByCourt ?? {}) }));
       })
       .catch(() => {
         if (!cancelled) setByDate((prev) => ({ ...prev, [date]: null }));
@@ -117,7 +143,8 @@ export function HeroBooking({
   }, [date, courts, byDate]);
 
   /** Free on the chosen court — the whole point of choosing one. */
-  const openAt = (hour: OpenHour) => (courtId === null ? hour.free.length > 0 : hour.free.includes(courtId));
+  const openAt = (hour: OpenHour) =>
+    !hour.past && !hour.rest && (courtId === null ? hour.free.length > 0 : hour.free.includes(courtId));
 
   const pickedHour = hours?.find((h) => h.startMs === picked) ?? null;
   const court = pickedHour && courtId !== null && pickedHour.free.includes(courtId) ? courtId : null;
@@ -137,6 +164,11 @@ export function HeroBooking({
   const buttonLabel = pickedHour
     ? `Book ${courtName ?? ""} ${pickedHour.label}`.replace("  ", " ")
     : "Book a court";
+
+  /* A day whose hours have all gone still draws its full grid now, so "pick an
+     hour" would be an instruction with nothing to obey it. The footer carries
+     the reason instead — the same one the empty state used to. */
+  const anyOpen = hours?.some(openAt) ?? false;
 
   return (
     <div
@@ -241,6 +273,23 @@ export function HeroBooking({
           {hours.map((hour) => {
             const open = openAt(hour);
             const isPicked = hour.startMs === picked;
+            /* An elapsed hour and a taken one are both unbookable and both look
+               it — the grid greys them the same way too. Only the second line
+               separates them, because "Full" on an hour that finished at noon
+               would be a fact about the courts rather than about the clock. */
+            /* The club's own word for its rest, not ours — it may be "Sabbath",
+               "Morning service", or anything else the admin typed. */
+            const state = hour.rest
+              ? hour.restLabel || "Closed"
+              : hour.past
+                ? "Closed"
+                : courtId === null
+                  ? open
+                    ? `${hour.free.length} free`
+                    : "Full"
+                  : open
+                    ? "Open"
+                    : "Taken";
             return (
               <li key={hour.startMs} className="min-w-0">
                 <button
@@ -248,6 +297,7 @@ export function HeroBooking({
                   disabled={!open}
                   onClick={() => setPicked(isPicked ? null : hour.startMs)}
                   aria-pressed={isPicked}
+                  title={hour.rest && hour.restLabel ? `${hour.label} — ${hour.restLabel}` : undefined}
                   className={cn(
                     "flex w-full flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-center transition-colors",
                     !open
@@ -258,8 +308,8 @@ export function HeroBooking({
                   )}
                 >
                   <span className="figure-display w-full truncate text-[0.9rem] leading-tight">{hour.label}</span>
-                  <span className="text-[0.625rem] font-bold uppercase tracking-[0.04em]">
-                    {courtId === null ? (open ? `${hour.free.length} free` : "Full") : open ? "Open" : "Taken"}
+                  <span className="w-full truncate text-[0.625rem] font-bold uppercase tracking-[0.04em]">
+                    {state}
                   </span>
                 </button>
               </li>
@@ -274,6 +324,8 @@ export function HeroBooking({
             <span className="text-bloom">{state.error}</span>
           ) : pickedHour ? (
             `${pickedHour.free.length} of ${pickedHour.courts} free at ${pickedHour.label}`
+          ) : hours && hours.length > 0 && !anyOpen ? (
+            date === dates[0] ? closedNote : "Nothing left that day — try another."
           ) : (
             "Pick an hour, we'll hold the court"
           )}

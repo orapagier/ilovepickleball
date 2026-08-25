@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, type SessionUser } from "@/lib/auth-helpers";
-import { getSettings, getBusinessHours, getBlackoutDateSet, ACTIVE_STATUSES } from "@/lib/booking-data";
+import {
+  getSettings,
+  getBusinessHours,
+  getBlackoutDateSet,
+  getRestWindows,
+  bustConfigCache,
+  ACTIVE_STATUSES,
+} from "@/lib/booking-data";
 import { isValidBookingRange, MAX_BOOKING_HOURS } from "@/lib/scheduling";
 import { queueCalendarSync, removeCalendarEvent } from "@/lib/google-calendar";
 import { isValidSkillRating } from "@/lib/skill";
@@ -198,6 +205,7 @@ export async function rescheduleBooking(_prev: ActionState, formData: FormData):
   const settings = await getSettings();
   const hoursRows = await getBusinessHours();
   const blackouts = await getBlackoutDateSet();
+  const restWindows = await getRestWindows();
 
   const range = isValidBookingRange({
     tz: settings.timezone,
@@ -205,6 +213,7 @@ export async function rescheduleBooking(_prev: ActionState, formData: FormData):
     leadMinutes: settings.leadMinutes,
     hours: hoursRows,
     blackouts,
+    rest: restWindows,
     startMs,
     durationHours: hours,
     now: new Date(),
@@ -312,6 +321,7 @@ export async function updateSettings(_prev: ActionState, formData: FormData): Pr
       courtChangeoverMinutes: Math.round(courtChangeoverMinutes),
     },
   });
+  bustConfigCache();
   revalidatePath("/admin/settings");
   revalidatePath("/");
   revalidatePath("/book");
@@ -329,6 +339,7 @@ export async function addCourt(_prev: ActionState, formData: FormData): Promise<
   if (!name) return { error: "Court name is required." };
   const count = await prisma.court.count();
   await prisma.court.create({ data: { name, sortOrder: count + 1 } });
+  bustConfigCache();
   revalidatePath("/admin/courts");
   revalidatePath("/book");
   return { ok: true };
@@ -339,6 +350,7 @@ export async function toggleCourt(courtId: number): Promise<ActionState> {
   const court = await prisma.court.findUnique({ where: { id: courtId } });
   if (!court) return { error: "Court not found." };
   await prisma.court.update({ where: { id: courtId }, data: { active: !court.active } });
+  bustConfigCache();
   revalidatePath("/admin/courts");
   revalidatePath("/book");
   return { ok: true };
@@ -350,6 +362,7 @@ export async function renameCourt(_prev: ActionState, formData: FormData): Promi
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return { error: "Court name is required." };
   await prisma.court.update({ where: { id: courtId }, data: { name } });
+  bustConfigCache();
   revalidatePath("/admin/courts");
   revalidatePath("/book");
   return { ok: true };
@@ -416,6 +429,7 @@ export async function deleteCourt(courtId: number): Promise<ActionState> {
     remaining.map((c, i) => prisma.court.update({ where: { id: c.id }, data: { sortOrder: i + 1 } })),
   );
 
+  bustConfigCache();
   revalidatePath("/admin/courts");
   revalidatePath("/book");
   return { ok: true };
@@ -433,6 +447,7 @@ export async function setCourtCalendar(_prev: ActionState, formData: FormData): 
     return { error: "That doesn't look like a calendar ID — copy it from Calendar settings." };
   }
   await prisma.court.update({ where: { id: courtId }, data: { googleCalendarId } });
+  bustConfigCache();
   revalidatePath("/admin/courts");
   return { ok: true };
 }
@@ -472,6 +487,89 @@ export async function updateBusinessHours(_prev: ActionState, formData: FormData
     prisma.businessHour.deleteMany({}),
     prisma.businessHour.createMany({ data: rows.filter((r) => r.closeMin > r.openMin) }),
   ]);
+  bustConfigCache();
+  revalidatePath("/admin/hours");
+  revalidatePath("/");
+  revalidatePath("/book");
+  return { ok: true };
+}
+
+// ---- Rest windows -----------------------------------------------------------
+
+/**
+ * Replace the club's weekly rests wholesale, the way the hours and the price
+ * tiers are replaced: the form posts the complete list, so a removed row is
+ * simply one that didn't come back.
+ *
+ * Deliberately permissive about *when* a rest falls — a club may rest at any
+ * hour of any day, may run one past midnight or past Saturday into Sunday, and
+ * may keep none at all. The only things refused are a window that says nothing
+ * (equal ends, which would close no time) and one with no label to show on the
+ * slots it closes.
+ */
+export async function updateRestWindows(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireAdminOrThrow();
+
+  const count = Number(formData.get("restCount") ?? 0);
+  if (!Number.isInteger(count) || count < 0 || count > 20) return { error: "Too many rest windows." };
+
+  const rows: {
+    startWeekday: number;
+    startMinute: number;
+    endWeekday: number;
+    endMinute: number;
+    label: string;
+    noteTitle: string;
+    noteBody: string;
+    quote: string;
+    quoteSource: string;
+    sortOrder: number;
+  }[] = [];
+
+  for (let i = 0; i < count; i++) {
+    // A row the admin removed in the browser posts nothing under its index.
+    if (formData.get(`restLabel-${i}`) === null) continue;
+
+    const startWeekday = Number(formData.get(`restStartDay-${i}`));
+    const endWeekday = Number(formData.get(`restEndDay-${i}`));
+    const startMinute = timeToMinutes(String(formData.get(`restStartTime-${i}`) ?? "00:00"));
+    const endMinute = timeToMinutes(String(formData.get(`restEndTime-${i}`) ?? "00:00"));
+    const label = String(formData.get(`restLabel-${i}`) ?? "").trim();
+    const noteTitle = String(formData.get(`restNoteTitle-${i}`) ?? "").trim();
+    const noteBody = String(formData.get(`restNoteBody-${i}`) ?? "").trim();
+    const quote = String(formData.get(`restQuote-${i}`) ?? "").trim();
+    const quoteSource = String(formData.get(`restQuoteSource-${i}`) ?? "").trim();
+
+    if (!Number.isInteger(startWeekday) || startWeekday < 0 || startWeekday > 6) {
+      return { error: "Pick a start day for every rest window." };
+    }
+    if (!Number.isInteger(endWeekday) || endWeekday < 0 || endWeekday > 6) {
+      return { error: "Pick an end day for every rest window." };
+    }
+    if (!label) return { error: "Give every rest window a short name — it labels the closed slots." };
+    if (startWeekday * 1440 + startMinute === endWeekday * 1440 + endMinute) {
+      return { error: `"${label}" starts and ends at the same moment, so it would close nothing.` };
+    }
+
+    rows.push({
+      startWeekday,
+      startMinute,
+      endWeekday,
+      endMinute,
+      label,
+      noteTitle,
+      noteBody,
+      quote,
+      quoteSource,
+      sortOrder: rows.length,
+    });
+  }
+
+  await prisma.$transaction([
+    prisma.restWindow.deleteMany({}),
+    ...(rows.length > 0 ? [prisma.restWindow.createMany({ data: rows })] : []),
+  ]);
+  bustConfigCache();
   revalidatePath("/admin/hours");
   revalidatePath("/");
   revalidatePath("/book");
@@ -507,6 +605,7 @@ export async function updatePriceTiers(_prev: ActionState, formData: FormData): 
   }
 
   await prisma.$transaction([prisma.priceTier.deleteMany({}), prisma.priceTier.createMany({ data: rows })]);
+  bustConfigCache();
   revalidatePath("/admin/pricing");
   revalidatePath("/");
   revalidatePath("/book");
@@ -525,6 +624,7 @@ export async function addBlackout(_prev: ActionState, formData: FormData): Promi
     update: { reason },
     create: { date: new Date(`${dateStr}T00:00:00.000Z`), reason },
   });
+  bustConfigCache();
   revalidatePath("/admin/blackouts");
   revalidatePath("/");
   revalidatePath("/book");
@@ -534,6 +634,7 @@ export async function addBlackout(_prev: ActionState, formData: FormData): Promi
 export async function deleteBlackout(dateISO: string): Promise<ActionState> {
   await requireAdminOrThrow();
   await prisma.blackoutDate.delete({ where: { date: new Date(`${dateISO}T00:00:00.000Z`) } });
+  bustConfigCache();
   revalidatePath("/admin/blackouts");
   revalidatePath("/");
   revalidatePath("/book");
