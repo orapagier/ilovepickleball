@@ -1,8 +1,27 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Setup
+
+On a fresh machine — nothing pre-installed, any distro with apt, dnf, zypper or
+pacman — this one line installs Node 22, git, the GitHub CLI, clones the repo to
+`~/dev/booking` and scaffolds `.env.local`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/orapagier/ilovepickleball/main/setup-booking.sh | bash
+```
+
+Optional extras go through `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/orapagier/ilovepickleball/main/setup-booking.sh | bash -s -- --with-vercel --with-pgclient
+```
+
+It is safe to re-run: every step skips what is already in place. See
+`setup-booking.sh --help` for the full flag list.
+
 ## Getting Started
 
-First, run the development server:
+Once setup has run, start the development server:
 
 ```bash
 npm run dev
