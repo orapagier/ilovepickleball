@@ -1,16 +1,35 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Smash Zone Booking — dev environment bootstrap  (any Debian-based distro)
+#  Smash Zone Booking — dev environment bootstrap  (distro-agnostic: apt / dnf / zypper / pacman)
 # -----------------------------------------------------------------------------
 #  Takes a FRESH OS install to "can run the app, talk to the database, commit
 #  and deploy". Safe to re-run: every step skips what is already in place.
 #
 #  SUPPORTED
-#    Any Debian derivative (Debian, Ubuntu, Mint, Pop!_OS, ...) on x86_64 or
+#    Any Linux with apt, dnf, zypper or pacman — Debian/Ubuntu/Mint/Pop!_OS,
+#    Fedora/RHEL/Rocky, openSUSE, Arch/CachyOS — on x86_64 or
 #    arm64, under WSL2, on bare metal / a VM, or inside a container (rootless
 #    Podman, distrobox/toolbox, Docker) — desktop or headless.
 #    Run it as your NORMAL user — not with sudo; it escalates per command so
 #    your SSH key, npm cache and the checkout stay owned by you.
+#
+#
+#  PORTABILITY  (what makes this run on a distro it has never seen)
+#    One package-manager layer near the top decides between apt, dnf, zypper and
+#    pacman ONCE, and everything after it is written in generic package names
+#    that pkg_map translates (build-essential -> gcc gcc-c++ make on Fedora,
+#    base-devel on Arch; openssh-client -> openssh-clients / openssh; ...).
+#    A name with no mapping passes through unchanged, which is already right for
+#    curl, git, jq, lld and most of the rest. Names that are an apt-only concept
+#    (apt-transport-https, postgresql-common) map to NOTHING elsewhere, so they
+#    cannot abort the batch they are part of.
+#    Third-party software that is not in any distro's repo — Node 22, gh, the
+#    Google Cloud CLI, the PostgreSQL 17 client — has a per-family branch, and
+#    Node and gcloud additionally fall back to the vendor's own tarball into
+#    ~/.local. That fallback needs no root and no distro repo, so it is the path
+#    that works on a distro this script has never heard of.
+#    The INNER distro is what is detected. An Ubuntu distrobox on a Fedora host
+#    is apt, not dnf — the host's package manager is never consulted.
 #
 #  WHERE THIS RUNS  (the HOST distro is irrelevant — only what is inside counts)
 #    bare metal / VM   Ubuntu, Debian, Mint, Pop!_OS, ... nothing special.
@@ -295,7 +314,8 @@ fi
 # ── Preflight ────────────────────────────────────────────────────────────────
 step "Preflight"
 [ "$(uname -s)" = "Linux" ] || err "This targets Linux/WSL (Debian-based)."
-command -v apt-get >/dev/null 2>&1 || err "apt-get not found — Debian-based distros only."
+for _pm in apt-get dnf5 dnf zypper pacman; do command -v "$_pm" >/dev/null 2>&1 && break; _pm=""; done
+[ -n "${_pm:-}" ] || err "no supported package manager found (apt-get, dnf, zypper or pacman)."
 # nproc and /proc/meminfo report the HOST's totals inside a container, so use
 # the cgroup limit when one is set — otherwise this line is simply misleading.
 CORES="$(nproc)"
@@ -357,15 +377,203 @@ fi
 APT_LOG="$(mktemp)"
 # </dev/null on both, for the same reason ssh gets -n below: under `curl … | bash`
 # stdin is this script's own source, and any child that reads it eats the rest.
-apt_install() {
-  $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >>"$APT_LOG" 2>&1 </dev/null \
-    || { warn "apt-get install failed for: $*"; tail -20 "$APT_LOG" >&2; return 1; }
+PKG_LOG="$APT_LOG"   # same file; PKG_ is the name the rest of this layer uses.
+
+# Which package manager does the distro INSIDE this container/WSL/host use? The
+# host's is irrelevant — an Ubuntu distrobox on a Fedora host is apt, not dnf.
+# Detected once, here, so that everything below can be written in generic
+# package names and this is the only code that knows one distro from another.
+PM=""
+for _c in apt-get dnf5 dnf zypper pacman; do
+  if command -v "$_c" >/dev/null 2>&1; then PM="$_c"; break; fi
+done
+case "$PM" in
+  apt-get)  PM_FAMILY=debian ;;
+  dnf5|dnf) PM_FAMILY=fedora ;;
+  zypper)   PM_FAMILY=suse   ;;
+  pacman)   PM_FAMILY=arch   ;;
+  *) err "no supported package manager found (looked for apt-get, dnf, zypper, pacman)." ;;
+esac
+
+# Generic name -> this distro's name. Anything with no entry falls through
+# unchanged, which is already correct for most of them (curl, git, jq, unzip,
+# lld, clang, openssl, ca-certificates, nodejs...). An empty result means "this
+# distro does not need that package at all" and installs nothing.
+pkg_map() {
+  local g
+  for g in "$@"; do
+    case "$g" in
+      build-essential)
+        case "$PM_FAMILY" in
+          debian) echo "build-essential" ;;
+          fedora) echo "gcc gcc-c++ make" ;;
+          arch)   echo "base-devel" ;;
+          suse)   echo "gcc gcc-c++ make" ;;
+        esac ;;
+      pkg-config)
+        case "$PM_FAMILY" in
+          debian|suse) echo "pkg-config" ;;
+          fedora)      echo "pkgconf-pkg-config" ;;
+          arch)        echo "pkgconf" ;;
+        esac ;;
+      openssh-client)
+        case "$PM_FAMILY" in
+          debian)      echo "openssh-client" ;;
+          fedora|suse) echo "openssh-clients" ;;
+          arch)        echo "openssh" ;;
+        esac ;;
+      gnupg)
+        case "$PM_FAMILY" in
+          debian|arch) echo "gnupg" ;;
+          fedora)      echo "gnupg2" ;;
+          suse)        echo "gpg2" ;;
+        esac ;;
+      musl-tools)
+        case "$PM_FAMILY" in
+          debian) echo "musl-tools" ;;
+          fedora) echo "musl-gcc" ;;
+          *)      echo "musl" ;;
+        esac ;;
+      xz)
+        case "$PM_FAMILY" in
+          debian) echo "xz-utils" ;;
+          *)      echo "xz" ;;
+        esac ;;
+      pipx)
+        case "$PM_FAMILY" in
+          arch) echo "python-pipx" ;;
+          suse) echo "python3-pipx" ;;   # openSUSE has no bare "pipx"
+          *)    echo "pipx" ;;
+        esac ;;
+      # apt-only concepts. Everywhere else these are either built in or absent,
+      # and asking for them by name would abort the install of the whole batch.
+      apt-transport-https|postgresql-common)
+        case "$PM_FAMILY" in debian) echo "$g" ;; esac ;;
+      *) echo "$g" ;;
+    esac
+  done
 }
-apt_update() { $SUDO apt-get update -qq >>"$APT_LOG" 2>&1 </dev/null || warn "apt-get update reported an error"; }
+
+pkg_update() {
+  case "$PM_FAMILY" in
+    debian) $SUDO apt-get update -qq                >>"$PKG_LOG" 2>&1 </dev/null ;;
+    fedora) $SUDO "$PM" -q makecache                >>"$PKG_LOG" 2>&1 </dev/null ;;
+    # -Syu, not -Sy: on Arch, refreshing the index and then installing without
+    # upgrading is the classic partial-upgrade that leaves a system with
+    # mismatched libraries. Arch supports no other update model.
+    arch)   $SUDO pacman -Syu --noconfirm           >>"$PKG_LOG" 2>&1 </dev/null ;;
+    suse)   $SUDO zypper -n refresh                 >>"$PKG_LOG" 2>&1 </dev/null ;;
+  esac || warn "package index update reported an error"
+}
+
+# Deliberately unquoted "$pkgs": pkg_map can expand one generic name into
+# several real ones (build-essential -> gcc gcc-c++ make), so word splitting
+# here is the point.
+pkg_install() {
+  local pkgs
+  pkgs="$(pkg_map "$@" | tr '\n' ' ')"
+  case "$pkgs" in *[![:space:]]*) ;; *) return 0 ;; esac
+  case "$PM_FAMILY" in
+    debian) $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs >>"$PKG_LOG" 2>&1 </dev/null ;;
+    fedora) $SUDO "$PM" install -y -q $pkgs      >>"$PKG_LOG" 2>&1 </dev/null ;;
+    arch)   $SUDO pacman -S --noconfirm --needed $pkgs >>"$PKG_LOG" 2>&1 </dev/null ;;
+    suse)   $SUDO zypper -n install $pkgs        >>"$PKG_LOG" 2>&1 </dev/null ;;
+  esac || { warn "package install failed for: $pkgs"; tail -20 "$PKG_LOG" >&2; return 1; }
+}
+
+# Kept so the ~15 existing call sites below need no edit. They read as "apt"
+# but route through the layer above on every distro.
+apt_install() { pkg_install "$@"; }
+apt_update()  { pkg_update; }
+
+# `gh auth status` makes a network round-trip to validate the token. On a flaky
+# link that call times out and reports "not authenticated" for an account that
+# is perfectly well logged in — and every gh branch below then silently takes
+# the wrong path (skipping the SSH-key upload, skipping the private-repo clone).
+# `gh auth token` answers the question that actually matters — is there a usable
+# token on this machine — from local state alone, in milliseconds. The network
+# check is kept only as a fallback for older gh builds without `auth token`.
+gh_authed() {
+  command -v gh >/dev/null 2>&1 || return 1
+  gh auth token >/dev/null 2>&1 && return 0
+  gh auth status >/dev/null 2>&1
+}
+
+# Cloning is the step most likely to fail on a flaky link. A large repo over
+# HTTP/2 dies partway through the pack with "stream not closed cleanly (CANCEL)"
+# and "early EOF"; the old code reported that as a bad URL, which sent you off
+# checking a URL that was fine. Retry on a transport that survives it.
+_safe_rm_partial() {
+  # Only ever removes something this function could have created: absent, empty,
+  # or a partial clone. Never rm -rf a directory that holds someone's work.
+  [ -e "$1" ] || return 0
+  if [ -d "$1/.git" ] || [ -z "$(ls -A "$1" 2>/dev/null)" ]; then rm -rf "$1"; fi
+}
+git_clone_resilient() {
+  local url="$1" dest="$2" attempt=0
+  while [ "$attempt" -lt 3 ]; do
+    attempt=$((attempt + 1))
+    _safe_rm_partial "$dest"
+    if [ "$attempt" -eq 1 ]; then
+      git clone "$url" "$dest" && return 0
+    else
+      # HTTP/1.1 sidesteps the HTTP/2 stream reset; the big postBuffer and the
+      # stall timeout carry a ~100 MB pack over a link that keeps hiccuping.
+      warn "clone attempt $((attempt - 1)) failed — retrying over HTTP/1.1"
+      git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 \
+          -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+          clone "$url" "$dest" && return 0
+    fi
+  done
+  _safe_rm_partial "$dest"
+  return 1
+}
+# Says which of the three things actually went wrong, instead of guessing.
+clone_diagnosis() {
+  local url="$1" slug="${1#https://github.com/}"
+  if ! curl -fsS -m 20 -o /dev/null "https://api.github.com/repos/${slug%.git}" 2>/dev/null; then
+    echo "the repo could not be reached — check the URL, your network, or run 'gh auth login' if it is private"
+  else
+    echo "the repo exists and is reachable, so this is a flaky connection, not a bad URL.
+     Re-run the script, or clone by hand with:
+       git -c http.version=HTTP/1.1 clone $url"
+  fi
+}
+
+# Node 22, with no distro repo involved. The last resort when a distro ships no
+# suitable Node (or its repo is unreachable): the official tarball into ~/.local,
+# which needs no root and behaves the same on every distro.
+install_node_tarball() {
+  local arch tarball ver
+  case "$(uname -m)" in
+    x86_64)  arch=linux-x64 ;;
+    aarch64|arm64) arch=linux-arm64 ;;
+    *) warn "no Node tarball for $(uname -m)"; return 1 ;;
+  esac
+  ver="$(curl -fsSL --max-time 30 https://nodejs.org/dist/index.json 2>/dev/null \
+         | jq -r '[.[] | select(.version | startswith("v22."))][0].version' 2>/dev/null)"
+  case "$ver" in v22.*) ;; *) warn "could not determine the latest Node 22"; return 1 ;; esac
+  info "installing Node $ver from nodejs.org into ~/.local (no root needed)"
+  tarball="$(mktemp -d)/node.tar.xz"
+  curl -fsSL --max-time 300 -o "$tarball" \
+    "https://nodejs.org/dist/${ver}/node-${ver}-${arch}.tar.xz" || { warn "Node download failed"; return 1; }
+  mkdir -p "$HOME/.local/lib" "$HOME/.local/bin"
+  rm -rf "$HOME/.local/lib/node-22"
+  mkdir -p "$HOME/.local/lib/node-22"
+  tar -xJf "$tarball" -C "$HOME/.local/lib/node-22" --strip-components=1 || { warn "Node unpack failed"; return 1; }
+  ln -sf "$HOME/.local/lib/node-22/bin/node" "$HOME/.local/bin/node"
+  ln -sf "$HOME/.local/lib/node-22/bin/npm"  "$HOME/.local/bin/npm"
+  ln -sf "$HOME/.local/lib/node-22/bin/npx"  "$HOME/.local/bin/npx"
+  export PATH="$HOME/.local/bin:$PATH"
+  hash -r 2>/dev/null || true
+}
 
 step "Base packages"
 apt_update
-apt_install curl ca-certificates gnupg git openssh-client openssl
+# jq, tar and xz are here for install_node_tarball: it reads nodejs.org's
+# release index with jq and unpacks a .tar.xz. Nothing else in this project
+# needs them, but the Node fallback is the path that has to work everywhere.
+apt_install curl ca-certificates gnupg git openssh-client openssl jq tar xz
 log "curl, git, openssh-client, openssl"
 
 if [ "$IS_WSL" = 1 ] && ! command -v xdg-open >/dev/null 2>&1 && ! command -v wslview >/dev/null 2>&1; then
@@ -402,16 +610,31 @@ if [ "$DO_GH" = 1 ]; then
     log "gh present: $(gh --version | head -1 | awk '{print $3}')"
   else
     info "installing gh (codename-independent 'stable' suite)"
-    $SUDO mkdir -p -m 755 /etc/apt/keyrings
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | $SUDO tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
-    $SUDO chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-      | $SUDO tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-    apt_update
-    apt_install gh
+    case "$PM_FAMILY" in
+      debian)
+        $SUDO mkdir -p -m 755 /etc/apt/keyrings
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+          | $SUDO tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+        $SUDO chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+          | $SUDO tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+        pkg_update
+        pkg_install gh || true ;;
+      fedora)
+        # Fedora does package gh, but the upstream repo tracks releases closely
+        # and is the same source the deb above uses.
+        $SUDO curl -fsSL --max-time 60 -o /etc/yum.repos.d/gh-cli.repo \
+          https://cli.github.com/packages/rpm/gh-cli.repo >>"$PKG_LOG" 2>&1 \
+          || warn "could not add the gh rpm repo — falling back to the distro package"
+        pkg_install gh || true ;;
+      arch) pkg_install github-cli || true ;;
+      suse)
+        $SUDO zypper -n addrepo -fG https://cli.github.com/packages/rpm/gh-cli.repo >>"$PKG_LOG" 2>&1 || true
+        pkg_install gh || true ;;
+    esac
+    command -v gh >/dev/null 2>&1 || warn "gh could not be installed — it is optional; the clone below still works"
   fi
-  if gh auth status >/dev/null 2>&1; then
+  if gh_authed; then
     log "gh authenticated"
   else
     warn "gh is not authenticated (the clone works without it — this repo is public;"
@@ -442,13 +665,13 @@ else
   CLONED=0
   case "$REPO_URL" in
     https://github.com/*)
-      if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      if gh_authed; then
         gh repo clone "${REPO_URL#https://github.com/}" "$CLONE_DIR" && CLONED=1 \
           || warn "gh repo clone failed — falling back to git"
       fi ;;
   esac
-  [ "$CLONED" -eq 1 ] || git clone "$REPO_URL" "$CLONE_DIR" \
-    || err "clone failed — check your network, or 'gh auth login' if the repo is now private."
+  [ "$CLONED" -eq 1 ] || git_clone_resilient "$REPO_URL" "$CLONE_DIR" \
+    || err "clone failed after 3 attempts — $(clone_diagnosis "$REPO_URL")"
   is_booking_repo "$CLONE_DIR" || err "clone finished but $CLONE_DIR is not the booking repo"
   ROOT="$CLONE_DIR"; log "cloned to $ROOT"
 fi
@@ -491,7 +714,7 @@ if [ "$DO_GIT" = 1 ]; then
   # unset user.email makes every `git commit` fail. Precedence: what git already
   # has > GIT_EMAIL= > your public GitHub email > DEFAULT_GIT_EMAIL.
   EMAIL_SRC=""
-  if [ -z "$GIT_EMAIL" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  if [ -z "$GIT_EMAIL" ] && gh_authed; then
     GIT_EMAIL="$(gh api user --jq '.email // empty' 2>/dev/null || true)"
     [ -n "$GIT_EMAIL" ] && EMAIL_SRC=" (your public GitHub email)"
   fi
@@ -512,7 +735,7 @@ if [ "$DO_GIT" = 1 ]; then
     log "reusing existing key: $SSH_KEY"
   else
     mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
-    ssh-keygen -t ed25519 -C "$(git config --get user.email || echo "dev@$(hostname)")" \
+    ssh-keygen -t ed25519 -C "$(git config --get user.email || echo "dev@$(uname -n)")" \
                -f "$SSH_KEY" -N "${SSH_PASSPHRASE:-}" -q
     chmod 600 "$SSH_KEY"; log "created $SSH_KEY"
   fi
@@ -541,9 +764,21 @@ if [ "$DO_GIT" = 1 ]; then
   if [ "${SSH_OUT#*successfully authenticated}" != "$SSH_OUT" ]; then
     log "SSH key accepted by GitHub"
   else
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-      gh ssh-key add "${SSH_KEY}.pub" --title "booking-dev-$(hostname)" >/dev/null 2>&1 \
-        && log "SSH key uploaded to your GitHub account" || true
+    if gh_authed; then
+      if gh ssh-key add "${SSH_KEY}.pub" --title "booking-dev-$(uname -n)" 2>>"$PKG_LOG"; then
+        log "SSH key uploaded to your GitHub account"
+      elif [ "$INTERACTIVE" = 1 ]; then
+        # A plain `gh auth login` mints a token with no admin:public_key scope,
+        # so the upload 404s. Ask for the scope instead of silently giving up —
+        # the old `|| true` here hid this failure completely.
+        warn "gh lacks the admin:public_key scope — requesting it now"
+        gh auth refresh -h github.com -s admin:public_key </dev/tty \
+          && gh ssh-key add "${SSH_KEY}.pub" --title "booking-dev-$(uname -n)" \
+          && log "SSH key uploaded to your GitHub account" || true
+      else
+        warn "gh cannot upload the key: its token lacks the admin:public_key scope."
+        warn "  grant it with:  gh auth refresh -h github.com -s admin:public_key"
+      fi
     fi
     SSH_OUT="$(ssh -n -o BatchMode=yes -T git@github.com 2>&1 || true)"
     if [ "${SSH_OUT#*successfully authenticated}" = "$SSH_OUT" ]; then
@@ -582,14 +817,34 @@ if [ "$DO_NODE" = 1 ]; then
       || info "installing Node 22 LTS from NodeSource"
     # 'nodistro' is codename-independent — important on newer releases where
     # NodeSource publishes no per-codename dist.
-    $SUDO mkdir -p -m 755 /etc/apt/keyrings
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-      | $SUDO gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-    $SUDO chmod go+r /etc/apt/keyrings/nodesource.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
-      | $SUDO tee /etc/apt/sources.list.d/nodesource.list >/dev/null
-    apt_update
-    apt_install nodejs
+    case "$PM_FAMILY" in
+      debian)
+        $SUDO mkdir -p -m 755 /etc/apt/keyrings
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+          | $SUDO gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        $SUDO chmod go+r /etc/apt/keyrings/nodesource.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+          | $SUDO tee /etc/apt/sources.list.d/nodesource.list >/dev/null
+        pkg_update
+        pkg_install nodejs || true ;;
+      fedora)
+        # NodeSource ships rpms as well; its setup script writes the repo file.
+        curl -fsSL --max-time 120 https://rpm.nodesource.com/setup_22.x | $SUDO bash - >>"$PKG_LOG" 2>&1 \
+          || warn "NodeSource rpm setup failed — trying the distro's own nodejs"
+        pkg_install nodejs || true ;;
+      arch)
+        # Arch tracks current Node, which is already past 22.
+        pkg_install nodejs npm || true ;;
+      suse)
+        pkg_install nodejs22 npm22 || pkg_install nodejs npm || true ;;
+    esac
+    # However that went, finish with a Node that is actually >= 22. The tarball
+    # needs no root and no distro repo, so it is the one route that cannot be
+    # defeated by a distro shipping the wrong major or by a repo being down.
+    if ! command -v node >/dev/null 2>&1 \
+       || [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt 22 ]; then
+      install_node_tarball || warn "could not install Node 22"
+    fi
   fi
   log "node $(node -v) | npm $(npm -v)"
 fi
@@ -754,14 +1009,62 @@ if [ "$W_PGCLIENT" = 1 ]; then
     # lag behind Neon's server version, and pg_dump refuses to dump a server
     # newer than itself. .github/workflows/backup.yml hit exactly this.
     info "adding the PostgreSQL apt repo and installing client 17"
-    apt_install postgresql-common
-    $SUDO /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >>"$APT_LOG" 2>&1 \
-      || warn "pgdg repo script failed"
-    apt_update
-    apt_install postgresql-client-17
-    [ -x /usr/lib/postgresql/17/bin/pg_dump ] \
-      && log "pg_dump $( /usr/lib/postgresql/17/bin/pg_dump --version | awk '{print $3}')" \
-      || warn "postgresql-client-17 not found after install"
+    case "$PM_FAMILY" in
+      debian)
+        pkg_install postgresql-common
+        $SUDO /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >>"$PKG_LOG" 2>&1 \
+          || warn "pgdg repo script failed"
+        pkg_update
+        pkg_install postgresql-client-17 || true ;;
+      fedora)
+        # Try the distro's own postgresql17 first. On Fedora that is a real
+        # package and it is the clean answer; PGDG only publishes an ENTERPRISE
+        # Linux repo, whose rpms are built against EL9 and can drag in
+        # conflicting deps on Fedora. So PGDG is the fallback, not the default.
+        if ! pkg_install postgresql17; then
+          # The reporpm is per-arch, and PGDG publishes none outside
+          # x86_64/aarch64. Installing the wrong one leaves a 404ing repo
+          # behind that breaks every later dnf call, so check first and undo it
+          # if it does not produce a client.
+          _pg_arch=""
+          case "$(uname -m)" in
+            x86_64)        _pg_arch=x86_64 ;;
+            aarch64|arm64) _pg_arch=aarch64 ;;
+          esac
+          if [ -n "$_pg_arch" ]; then
+            info "no distro postgresql17 — trying the PGDG EL-9 repo"
+            $SUDO "$PM" install -y -q \
+              "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-${_pg_arch}/pgdg-redhat-repo-latest.noarch.rpm" \
+              >>"$PKG_LOG" 2>&1 || warn "pgdg repo install failed"
+            pkg_install postgresql17 || {
+              $SUDO rm -f /etc/yum.repos.d/pgdg-redhat-all.repo
+              warn "PGDG did not yield postgresql17 — repo file removed so it cannot break later dnf runs"
+            }
+          else
+            warn "no PostgreSQL 17 client available for $(uname -m)"
+          fi
+        fi ;;
+      arch) pkg_install postgresql || true ;;
+      suse) pkg_install postgresql17 || pkg_install postgresql || true ;;
+    esac
+    # Find pg_dump wherever this distro put it, then check the major really is
+    # 17 rather than assuming the Debian path.
+    PGDUMP=""
+    for _p in /usr/lib/postgresql/17/bin/pg_dump /usr/pgsql-17/bin/pg_dump \
+              /usr/local/pgsql/bin/pg_dump "$(command -v pg_dump 2>/dev/null || true)"; do
+      [ -n "$_p" ] && [ -x "$_p" ] || continue
+      PGDUMP="$_p"; break
+    done
+    if [ -n "$PGDUMP" ]; then
+      _pgver="$("$PGDUMP" --version | awk '{print $3}')"
+      case "$_pgver" in
+        17*) log "pg_dump $_pgver ($PGDUMP)" ;;
+        *)   warn "pg_dump $_pgver found at $PGDUMP, but Neon runs 17 and pg_dump"
+             warn "  refuses to dump a server newer than itself — install the 17 client." ;;
+      esac
+    else
+      warn "no pg_dump found after install"
+    fi
   fi
 fi
 
@@ -797,7 +1100,7 @@ SSH_PROBE="$(ssh -n -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.
   || { miss "github ssh" "key not accepted"; TODO+=("Add ~/.ssh/id_ed25519.pub at https://github.com/settings/ssh/new"); }
 
 if command -v gh >/dev/null 2>&1; then
-  gh auth status >/dev/null 2>&1 && ok "gh auth" "authenticated" \
+  gh_authed && ok "gh auth" "authenticated" \
     || { miss "gh auth" "not authenticated"; TODO+=("Run 'gh auth login' to upload your SSH key and enable 'git push'"); }
 fi
 
